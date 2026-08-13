@@ -138,7 +138,18 @@ ul li::marker { color: var(--chef-accent); }
 }
 .st-key-ingredient-search .st-key-ingredient-search-button {
   width: 100%;
-  margin-top: 0.35rem;
+}
+.st-key-ingredient-search [data-testid="stHorizontalBlock"] {
+  align-items: flex-end;
+  gap: 1rem;
+}
+.st-key-ingredient-search [data-testid="stColumn"]:first-child {
+  flex: 1 1 auto !important;
+  min-width: 0;
+}
+.st-key-ingredient-search [data-testid="stColumn"]:last-child {
+  flex: 0 0 clamp(11rem, 16vw, 14rem) !important;
+  width: clamp(11rem, 16vw, 14rem) !important;
 }
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
   min-height: 4.3rem;
@@ -278,6 +289,15 @@ hr { border-color: var(--chef-divider); }
   .st-key-ingredient-search {
     margin-top: 1rem;
     padding: 0.8rem;
+  }
+  .st-key-ingredient-search [data-testid="stHorizontalBlock"] {
+    align-items: stretch !important;
+    flex-direction: column !important;
+    gap: 0.75rem !important;
+  }
+  .st-key-ingredient-search [data-testid="stColumn"] {
+    flex: 1 1 auto !important;
+    width: 100% !important;
   }
   [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
   [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {
@@ -491,26 +511,33 @@ def main() -> None:
     )
 
     with st.container(key="ingredient-search"):
-        selected = st.multiselect(
-            "Продукти",
-            options=known_ingredients(),
-            placeholder="Додати продукт",
-            accept_new_options=True,
-            max_selections=12,
-            key="ingredients",
-            on_change=_ingredients_changed,
-            label_visibility="visible",
+        ingredients_column, action_column = st.columns(
+            [5, 1],
+            gap="medium",
+            vertical_alignment="bottom",
         )
+        with ingredients_column:
+            selected = st.multiselect(
+                "Продукти",
+                options=known_ingredients(),
+                placeholder="Додати продукт",
+                accept_new_options=True,
+                max_selections=12,
+                key="ingredients",
+                on_change=_ingredients_changed,
+                label_visibility="visible",
+            )
         searching = st.session_state.search_phase == "searching"
-        st.button(
-            "Шукаємо страву…" if searching else "Знайти страву",
-            type="primary",
-            use_container_width=True,
-            disabled=not selected or searching,
-            key="ingredient-search-button",
-            icon=":material/progress_activity:" if searching else ":material/search:",
-            on_click=_queue_recipe_search,
-        )
+        with action_column:
+            st.button(
+                "Шукаємо страву…" if searching else "Знайти страву",
+                type="primary",
+                use_container_width=True,
+                disabled=not selected or searching,
+                key="ingredient-search-button",
+                icon=":material/progress_activity:" if searching else ":material/search:",
+                on_click=_queue_recipe_search,
+            )
 
         if not selected:
             st.caption("Додайте хоча б один продукт.")

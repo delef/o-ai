@@ -172,14 +172,18 @@ def test_ingredient_remove_control_has_hover_and_focus_states() -> None:
     assert "outline: 3px solid rgb(228 71 51 / 25%)" in PAGE_STYLE
 
 
-def test_search_action_fills_the_shared_search_surface() -> None:
-    rule = re.search(
-        r"\.st-key-ingredient-search \.st-key-ingredient-search-button \{(?P<body>.*?)\n\}",
+def test_search_action_is_compact_on_desktop_and_stacks_on_mobile() -> None:
+    desktop_rule = re.search(
+        r'\.st-key-ingredient-search \[data-testid="stColumn"\]:last-child \{(?P<body>.*?)\n\}',
         PAGE_STYLE,
         re.DOTALL,
     )
-    assert rule is not None
-    assert "width: 100%" in rule.group("body")
+    assert desktop_rule is not None
+    assert "flex: 0 0 clamp(" in desktop_rule.group("body")
+
+    mobile_styles = PAGE_STYLE.split("@media (max-width: 720px)", 1)[1]
+    assert "flex-direction: column !important" in mobile_styles
+    assert "width: 100% !important" in mobile_styles
 
 
 def test_submit_without_api_key_shows_setup_error_and_preserves_selection(monkeypatch) -> None:
