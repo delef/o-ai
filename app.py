@@ -263,6 +263,11 @@ ul li::marker { color: var(--chef-accent); }
   opacity: 1 !important;
 }
 hr { border-color: var(--chef-divider); }
+@media (min-width: 721px) {
+  .st-key-ingredient-search-button {
+    padding-bottom: 0.375rem;
+  }
+}
 @media (max-width: 720px) {
   .block-container { padding: 1rem 1rem 7rem; }
   h1 {

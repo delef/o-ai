@@ -186,6 +186,15 @@ def test_search_action_is_compact_on_desktop_and_stacks_on_mobile() -> None:
     assert "width: 100% !important" in mobile_styles
 
 
+def test_desktop_search_action_compensates_multiselect_bottom_inset() -> None:
+    assert "@media (min-width: 721px)" in PAGE_STYLE
+    desktop_styles = PAGE_STYLE.split("@media (min-width: 721px)", 1)[1].split(
+        "@media (max-width: 720px)", 1
+    )[0]
+    assert ".st-key-ingredient-search-button" in desktop_styles
+    assert "padding-bottom: 0.375rem" in desktop_styles
+
+
 def test_submit_without_api_key_shows_setup_error_and_preserves_selection(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = AppTest.from_file("app.py").run()
