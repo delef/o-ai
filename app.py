@@ -5,6 +5,7 @@ import logging
 import os
 from collections.abc import Mapping
 from html import escape
+from numbers import Real
 from typing import Any
 
 import streamlit as st
@@ -15,6 +16,7 @@ from chefbot.services import format_ingredient, known_ingredients, normalize_tex
 
 
 LOGGER = logging.getLogger(__name__)
+AGENT_SCHEMA_VERSION = 2
 
 PAGE_STYLE = """
 <style>
@@ -522,89 +524,128 @@ def _remember_change(
     changes[group].append({identity_key: identity, "reason": reason})
 
 
+def _clean_recipe_revision_ingredients(value: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(value, list) or not value:
+        return None
+
+    ingredients: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            return None
+        name = str(item.get("name", "")).strip()
+        quantity = item.get("quantity")
+        unit_value = item.get("unit")
+        note_value = item.get("note")
+        unit = str(unit_value).strip() if unit_value is not None else None
+        note = str(note_value).strip() if note_value is not None else None
+        if not name or not unit:
+            if quantity is not None or not note:
+                return None
+        if quantity is not None:
+            if not isinstance(quantity, Real) or isinstance(quantity, bool) or quantity <= 0:
+                return None
+            if not unit:
+                return None
+        elif not note:
+            return None
+
+        normalized_name = normalize_text(name)
+        if not normalized_name or normalized_name in seen_names:
+            return None
+        seen_names.add(normalized_name)
+        ingredients.append(
+            {"name": name, "quantity": quantity, "unit": unit, "note": note}
+        )
+    return ingredients
+
+
+def _clean_recipe_revision_steps(value: Any) -> list[str] | None:
+    if not isinstance(value, list) or not value:
+        return None
+    steps = [str(step).strip() for step in value]
+    return steps if all(steps) else None
+
+
+def _ingredient_is_used_in_steps(name: str, steps: list[str]) -> bool:
+    """Use short stems so Ukrainian grammatical forms also match."""
+    step_text = normalize_text(" ".join(steps))
+    tokens = [token for token in normalize_text(name).split() if len(token) >= 4]
+    return bool(tokens) and any(token[:5] in step_text for token in tokens)
+
+
+def _ingredient_changed(
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> bool:
+    return any(
+        before.get(field) != after.get(field)
+        for field in ("name", "quantity", "unit", "note")
+    )
+
+
 def apply_recipe_edits(
     recipe: dict[str, Any],
     events: list[ToolEvent],
 ) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
-    """Apply verified recipe_editor patches and describe only this turn's changes."""
-    updated = copy.deepcopy(recipe)
+    """Replace a recipe only with one complete, internally coherent revision."""
     changes = empty_recipe_changes()
+    revision = next(
+        (
+            event.artifact
+            for event in reversed(events)
+            if event.name == "recipe_editor" and event.status == "ok"
+        ),
+        None,
+    )
+    if not isinstance(revision, dict):
+        return copy.deepcopy(recipe), changes
 
-    for event in events:
-        if event.name != "recipe_editor" or event.status != "ok":
+    reason = str(revision.get("reason", "")).strip()
+    ingredients = _clean_recipe_revision_ingredients(revision.get("ingredients"))
+    steps = _clean_recipe_revision_steps(revision.get("steps"))
+    if not reason or ingredients is None or steps is None:
+        return copy.deepcopy(recipe), changes
+
+    original_ingredients = recipe.get("ingredients", [])
+    if not isinstance(original_ingredients, list):
+        return copy.deepcopy(recipe), changes
+    original_names = {
+        normalize_text(str(item.get("name", "")))
+        for item in original_ingredients
+        if isinstance(item, dict)
+    }
+    added_ingredients = [
+        item
+        for item in ingredients
+        if normalize_text(item["name"]) not in original_names
+    ]
+    if any(not _ingredient_is_used_in_steps(item["name"], steps) for item in added_ingredients):
+        return copy.deepcopy(recipe), changes
+
+    updated = copy.deepcopy(recipe)
+    updated["ingredients"] = ingredients
+    updated["steps"] = steps
+
+    original_by_name = {
+        normalize_text(str(item.get("name", ""))): item
+        for item in original_ingredients
+        if isinstance(item, dict)
+    }
+    revised_names = {normalize_text(item["name"]) for item in ingredients}
+    for item in ingredients:
+        old_item = original_by_name.get(normalize_text(item["name"]))
+        if old_item is None or _ingredient_changed(old_item, item):
+            _remember_change(changes, "ingredients", item["name"], reason)
+    for item in original_ingredients:
+        if not isinstance(item, dict):
             continue
-        edit = event.artifact
-        action = str(edit.get("action", ""))
-        ingredient_name = str(edit.get("ingredient", "")).strip()
-        replacement = str(edit.get("replacement", "")).strip()
-        reason = str(edit.get("reason", "")).strip()
-        if not reason:
-            continue
-
-        ingredient_applied = action == "update_step"
-        ingredient_index = next(
-            (
-                index
-                for index, item in enumerate(updated.get("ingredients", []))
-                if normalize_text(str(item.get("name", "")))
-                == normalize_text(ingredient_name)
-            ),
-            None,
-        )
-
-        if action == "add" and ingredient_name:
-            if ingredient_index is None:
-                updated["ingredients"].append(
-                    {
-                        "name": ingredient_name,
-                        "quantity": edit.get("quantity"),
-                        "unit": edit.get("unit"),
-                        "note": edit.get("note"),
-                    }
-                )
-            else:
-                existing = updated["ingredients"][ingredient_index]
-                if edit.get("quantity") is not None:
-                    existing["quantity"] = edit["quantity"]
-                    existing["unit"] = edit.get("unit")
-                if edit.get("note") is not None:
-                    existing["note"] = edit["note"]
-            _remember_change(changes, "ingredients", ingredient_name, reason)
-            ingredient_applied = True
-
-        elif action == "replace" and ingredient_index is not None and replacement:
-            existing = updated["ingredients"][ingredient_index]
-            existing["name"] = replacement
-            if edit.get("quantity") is not None:
-                existing["quantity"] = edit["quantity"]
-                existing["unit"] = edit.get("unit")
-            if edit.get("note") is not None:
-                existing["note"] = edit["note"]
-            _remember_change(changes, "ingredients", replacement, reason)
-            ingredient_applied = True
-
-        elif action == "remove" and ingredient_index is not None:
-            removed = updated["ingredients"].pop(ingredient_index)
-            _remember_change(
-                changes,
-                "removed_ingredients",
-                str(removed["name"]),
-                reason,
-            )
-            ingredient_applied = True
-
-        if not ingredient_applied:
-            continue
-        step_number = edit.get("step_number")
-        step_text = str(edit.get("step_text", "")).strip()
-        if (
-            isinstance(step_number, int)
-            and 1 <= step_number <= len(updated.get("steps", []))
-            and step_text
-        ):
-            step_index = step_number - 1
-            updated["steps"][step_index] = step_text
-            _remember_change(changes, "steps", step_index, reason)
+        old_name = str(item.get("name", ""))
+        if normalize_text(old_name) not in revised_names:
+            _remember_change(changes, "removed_ingredients", old_name, reason)
+    for index, step in enumerate(steps):
+        if index >= len(recipe.get("steps", [])) or recipe["steps"][index] != step:
+            _remember_change(changes, "steps", index, reason)
 
     return updated, changes
 
@@ -671,8 +712,12 @@ def _queue_recipe_search() -> None:
 
 
 def _agent(api_key: str):
-    if st.session_state.agent is None:
+    if (
+        st.session_state.agent is None
+        or st.session_state.get("agent_schema_version") != AGENT_SCHEMA_VERSION
+    ):
         st.session_state.agent = create_chefbot(api_key=api_key)
+        st.session_state.agent_schema_version = AGENT_SCHEMA_VERSION
     return st.session_state.agent
 
 

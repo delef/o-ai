@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from langchain.tools import tool
+from pydantic import BaseModel, Field
 
 from chefbot.services import (
     convert_units,
@@ -12,7 +13,42 @@ from chefbot.services import (
 )
 
 
-RECIPE_EDIT_ACTIONS = {"add", "replace", "remove", "update_step"}
+class RecipeIngredientRevision(BaseModel):
+    """One ingredient in the revised, user-visible final recipe."""
+
+    name: str = Field(default="", description="Назва інгредієнта.")
+    quantity: float | None = Field(
+        default=None,
+        description="Додатна кількість, якщо вона відома або запропонована для рецепта.",
+    )
+    unit: str | None = Field(
+        default=None,
+        description="Одиниця виміру для quantity, наприклад «г» або «шт.».",
+    )
+    note: str | None = Field(
+        default=None,
+        description="Коротка примітка, наприклад «за смаком».",
+    )
+
+
+class RecipeRevision(BaseModel):
+    """The only accepted representation of a confirmed recipe change."""
+
+    reason: str = Field(
+        description="Коротка причина, заснована на явному проханні користувача."
+    )
+    ingredients: list[RecipeIngredientRevision] = Field(
+        description=(
+            "Повний актуальний список усіх інгредієнтів фінального рецепта, "
+            "включно з незміненими."
+        )
+    )
+    steps: list[str] = Field(
+        description=(
+            "Усі кроки фінального рецепта від першого до останнього, "
+            "включно з незміненими."
+        )
+    )
 
 
 def _recipe_content(matches: list[dict[str, Any]]) -> str:
@@ -90,86 +126,70 @@ def substitution_finder(ingredient: str) -> tuple[str, dict[str, Any]]:
     return "\n".join(lines), artifact
 
 
-@tool(response_format="content_and_artifact", parse_docstring=True)
+@tool(args_schema=RecipeRevision, response_format="content_and_artifact")
 def recipe_editor(
-    action: Literal["add", "replace", "remove", "update_step"],
     reason: str,
-    ingredient: str = "",
-    replacement: str = "",
-    quantity: float = 0,
-    unit: str = "",
-    note: str = "",
-    step_number: int = 0,
-    step_text: str = "",
+    ingredients: list[RecipeIngredientRevision],
+    steps: list[str],
 ) -> tuple[str, dict[str, Any]]:
-    """Зафіксуй підтверджену зміну поточного рецепта.
+    """Збережи повну, узгоджену нову версію поточного рецепта.
 
-    Args:
-        action: Використай add, replace або remove для інгредієнта; update_step, коли змінюється лише крок.
-        reason: Коротка видима причина на основі явного запиту користувача, без вигаданої користі.
-        ingredient: Точна назва нового або наявного інгредієнта; порожня для update_step.
-        replacement: Нова назва інгредієнта, обов'язкова лише для replace.
-        quantity: Точна кількість лише з явних даних; 0 означає, що її не вказано.
-        unit: Одиниця для quantity; порожня, коли кількість не вказана.
-        note: Коротка явна примітка до інгредієнта, наприклад «за смаком».
-        step_number: 1-based номер обов'язкового кроку для зміни інгредієнта або окремого оновлення.
-        step_text: Повний новий текст кроку, обов'язковий для зміни інгредієнта або кроку.
+    Не передавай часткові патчі. Один виклик містить весь підсумковий список
+    інгредієнтів та всі кроки приготування після підтвердженої зміни.
     """
-    normalized_action = action.strip().casefold()
-    clean_ingredient = ingredient.strip()
-    clean_replacement = replacement.strip()
     clean_reason = reason.strip()
-    clean_step = step_text.strip()
     artifact = {
         "kind": "recipe_editor",
         "status": "ok",
-        "action": normalized_action,
-        "ingredient": clean_ingredient,
-        "replacement": clean_replacement,
-        "quantity": quantity if quantity > 0 else None,
-        "unit": unit.strip() or None,
-        "note": note.strip() or None,
-        "step_number": step_number,
-        "step_text": clean_step,
         "reason": clean_reason,
+        "ingredients": [],
+        "steps": [],
     }
 
-    invalid_reason = ""
-    if normalized_action not in RECIPE_EDIT_ACTIONS:
-        invalid_reason = "Непідтримувана дія для рецепта."
-    elif not clean_reason:
-        invalid_reason = "Потрібно вказати коротку причину зміни."
-    elif normalized_action in {"add", "replace", "remove"} and not clean_ingredient:
-        invalid_reason = "Потрібно вказати інгредієнт."
-    elif normalized_action == "replace" and not clean_replacement:
-        invalid_reason = "Для заміни потрібно вказати новий інгредієнт."
-    elif quantity < 0:
-        invalid_reason = "Кількість не може бути від'ємною."
-    elif quantity > 0 and not artifact["unit"]:
-        invalid_reason = "Для точної кількості потрібно вказати одиницю."
-    elif (step_number > 0) != bool(clean_step):
-        invalid_reason = "Номер і новий текст кроку потрібно передати разом."
-    elif normalized_action in {"add", "replace", "remove"} and step_number <= 0:
-        invalid_reason = (
-            "Зміна інгредієнта має містити оновлений крок приготування, "
-            "щоб рецепт залишався цілісним."
-        )
-    elif normalized_action == "update_step" and step_number <= 0:
-        invalid_reason = "Для зміни приготування потрібно вказати крок."
-
-    if invalid_reason:
+    if not clean_reason:
         artifact["status"] = "invalid"
-        return invalid_reason, artifact
+        return "Потрібно вказати коротку причину зміни.", artifact
+    if not ingredients:
+        artifact["status"] = "invalid"
+        return "Потрібен повний непорожній список інгредієнтів рецепта.", artifact
+    if not steps:
+        artifact["status"] = "invalid"
+        return "Потрібні всі непорожні кроки приготування рецепта.", artifact
 
-    if normalized_action == "add":
-        content = f"До рецепта додано «{clean_ingredient}»."
-    elif normalized_action == "replace":
-        content = f"У рецепті «{clean_ingredient}» замінено на «{clean_replacement}»."
-    elif normalized_action == "remove":
-        content = f"З рецепта видалено «{clean_ingredient}»."
-    else:
-        content = f"Оновлено крок {step_number} рецепта."
-    return content, artifact
+    for ingredient in ingredients:
+        clean_name = ingredient.name.strip()
+        clean_unit = ingredient.unit.strip() if ingredient.unit else None
+        clean_note = ingredient.note.strip() if ingredient.note else None
+        quantity = ingredient.quantity
+        if not clean_name:
+            artifact["status"] = "invalid"
+            return "Кожен інгредієнт повинен мати назву.", artifact
+        if quantity is not None and quantity <= 0:
+            artifact["status"] = "invalid"
+            return "Кількість інгредієнта повинна бути більшою за нуль.", artifact
+        if quantity is not None and not clean_unit:
+            artifact["status"] = "invalid"
+            return "Для точної кількості потрібно вказати одиницю.", artifact
+        if quantity is None and not clean_note:
+            artifact["status"] = "invalid"
+            return (
+                "Для інгредієнта без кількості додайте примітку, наприклад «за смаком»."
+            ), artifact
+        artifact["ingredients"].append(
+            {
+                "name": clean_name,
+                "quantity": quantity,
+                "unit": clean_unit,
+                "note": clean_note,
+            }
+        )
+
+    artifact["steps"] = [step.strip() for step in steps]
+    if any(not step for step in artifact["steps"]):
+        artifact["status"] = "invalid"
+        return "Кожен крок приготування повинен містити текст.", artifact
+
+    return "Рецепт оновлено цілісною версією.", artifact
 
 
 def get_tools() -> list[Any]:

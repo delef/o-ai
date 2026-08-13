@@ -48,30 +48,27 @@ def test_substitution_tool_reports_missing_data_without_invention() -> None:
     assert "не знайдено" in message.content
 
 
-def test_recipe_editor_returns_a_structured_replace_patch_with_reason() -> None:
+def test_recipe_editor_returns_a_complete_revision_with_reason() -> None:
     message = invoke(
         recipe_editor,
         "edit-1",
-        action="replace",
-        ingredient="куряче філе",
-        replacement="філе індички",
         reason="Ви попросили замінити курятину на індичку.",
-        step_number=1,
-        step_text="Наріжте індичку, картоплю та моркву.",
+        ingredients=[
+            {"name": "філе індички", "quantity": 500, "unit": "г"},
+            {"name": "картопля", "quantity": 700, "unit": "г"},
+        ],
+        steps=["Наріжте індичку та картоплю.", "Запікайте 45 хвилин."],
     )
 
     assert message.artifact == {
         "kind": "recipe_editor",
         "status": "ok",
-        "action": "replace",
-        "ingredient": "куряче філе",
-        "replacement": "філе індички",
-        "quantity": None,
-        "unit": None,
-        "note": None,
-        "step_number": 1,
-        "step_text": "Наріжте індичку, картоплю та моркву.",
         "reason": "Ви попросили замінити курятину на індичку.",
+        "ingredients": [
+            {"name": "філе індички", "quantity": 500, "unit": "г", "note": None},
+            {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+        ],
+        "steps": ["Наріжте індичку та картоплю.", "Запікайте 45 хвилин."],
     }
 
 
@@ -79,53 +76,62 @@ def test_recipe_editor_rejects_an_update_without_a_reason() -> None:
     message = invoke(
         recipe_editor,
         "edit-2",
-        action="add",
-        ingredient="цибуля",
         reason="",
+        ingredients=[{"name": "цибуля", "quantity": 1, "unit": "шт."}],
+        steps=["Наріжте цибулю."],
     )
 
     assert message.artifact["status"] == "invalid"
     assert "причину" in message.content
 
 
-def test_recipe_editor_rejects_partial_ingredient_change_without_recipe_step() -> None:
+def test_recipe_editor_rejects_an_ingredient_without_a_usable_amount() -> None:
     message = invoke(
         recipe_editor,
         "edit-ingredient-only",
-        action="add",
-        ingredient="цибуля",
-        note="за смаком",
         reason="Ви попросили додати цибулю.",
+        ingredients=[{"name": "цибуля"}],
+        steps=["Наріжте цибулю."],
     )
 
     assert message.artifact["status"] == "invalid"
-    assert "крок приготування" in message.content
+    assert "кількості" in message.content
 
 
 def test_recipe_editor_schema_constrains_and_explains_step_updates() -> None:
     schema = recipe_editor.args_schema.model_json_schema()
 
-    assert schema["properties"]["action"]["enum"] == [
-        "add",
-        "replace",
-        "remove",
-        "update_step",
-    ]
-    assert "лише крок" in schema["properties"]["action"]["description"]
-    assert "явного запиту" in schema["properties"]["reason"]["description"]
-    assert "1-based" in schema["properties"]["step_number"]["description"]
+    assert schema["required"] == ["reason", "ingredients", "steps"]
+    assert "action" not in schema["properties"]
+    assert "повний актуальний список" in schema["properties"]["ingredients"]["description"].casefold()
+    assert "усі кроки" in schema["properties"]["steps"]["description"].casefold()
 
 
-def test_recipe_editor_can_update_only_a_cooking_step() -> None:
+def test_recipe_editor_returns_a_complete_revised_recipe() -> None:
     message = invoke(
         recipe_editor,
-        "edit-step-1",
-        action="update_step",
-        reason="Ви попросили додати цибулю до першого кроку.",
-        step_number=1,
-        step_text="Наріжте курку, картоплю, моркву та цибулю.",
+        "revision-1",
+        reason="Ви попросили додати цибулю.",
+        ingredients=[
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+            {"name": "цибуля", "quantity": 1, "unit": "шт.", "note": None},
+        ],
+        steps=[
+            "Наріжте курку та цибулю.",
+            "Запікайте 45 хвилин.",
+        ],
     )
 
-    assert message.artifact["status"] == "ok"
-    assert message.artifact["action"] == "update_step"
-    assert message.artifact["step_number"] == 1
+    assert message.artifact == {
+        "kind": "recipe_editor",
+        "status": "ok",
+        "reason": "Ви попросили додати цибулю.",
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+            {"name": "цибуля", "quantity": 1, "unit": "шт.", "note": None},
+        ],
+        "steps": [
+            "Наріжте курку та цибулю.",
+            "Запікайте 45 хвилин.",
+        ],
+    }

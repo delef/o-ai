@@ -3,7 +3,7 @@ import re
 from langchain.messages import AIMessage, ToolMessage
 from streamlit.testing.v1 import AppTest
 
-from app import PAGE_STYLE, apply_recipe_edits, get_api_key, latest_recipe
+from app import AGENT_SCHEMA_VERSION, PAGE_STYLE, apply_recipe_edits, get_api_key, latest_recipe
 from chefbot.agent import ToolEvent
 
 
@@ -18,12 +18,15 @@ class FakeFollowUpAgent:
                         {
                             "name": "recipe_editor",
                             "args": {
-                                "action": "replace",
-                                "ingredient": "куряче філе",
-                                "replacement": "філе індички",
                                 "reason": "Ви попросили замінити курятину на індичку.",
-                                "step_number": 1,
-                                "step_text": "Наріжте індичку, картоплю та моркву.",
+                                "ingredients": [
+                                    {"name": "філе індички", "quantity": 500, "unit": "г"},
+                                    {"name": "картопля", "quantity": 700, "unit": "г"},
+                                ],
+                                "steps": [
+                                    "Наріжте індичку, картоплю та моркву.",
+                                    "Запікайте 45 хвилин.",
+                                ],
                             },
                             "id": "edit-1",
                             "type": "tool_call",
@@ -37,15 +40,15 @@ class FakeFollowUpAgent:
                     artifact={
                         "kind": "recipe_editor",
                         "status": "ok",
-                        "action": "replace",
-                        "ingredient": "куряче філе",
-                        "replacement": "філе індички",
-                        "quantity": None,
-                        "unit": None,
-                        "note": None,
-                        "step_number": 1,
-                        "step_text": "Наріжте індичку, картоплю та моркву.",
                         "reason": "Ви попросили замінити курятину на індичку.",
+                        "ingredients": [
+                            {"name": "філе індички", "quantity": 500, "unit": "г", "note": None},
+                            {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+                        ],
+                        "steps": [
+                            "Наріжте індичку, картоплю та моркву.",
+                            "Запікайте 45 хвилин.",
+                        ],
                     },
                 ),
                 AIMessage(
@@ -218,15 +221,12 @@ def test_recipe_edits_update_the_whole_recipe_and_describe_latest_changes() -> N
             artifact={
                 "kind": "recipe_editor",
                 "status": "ok",
-                "action": "replace",
-                "ingredient": "куряче філе",
-                "replacement": "філе індички",
-                "quantity": None,
-                "unit": None,
-                "note": None,
-                "step_number": 1,
-                "step_text": "Наріжте індичку та картоплю.",
                 "reason": "Ви попросили замінити курятину на індичку.",
+                "ingredients": [
+                    {"name": "філе індички", "quantity": 500, "unit": "г", "note": None},
+                    {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+                ],
+                "steps": ["Наріжте індичку та картоплю.", "Запікайте 45 хвилин."],
             },
         )
     ]
@@ -253,17 +253,26 @@ def test_recipe_edits_update_the_whole_recipe_and_describe_latest_changes() -> N
                 "reason": "Ви попросили замінити курятину на індичку.",
             }
         ],
-        "removed_ingredients": [],
+        "removed_ingredients": [
+            {
+                "name": "куряче філе",
+                "reason": "Ви попросили замінити курятину на індичку.",
+            }
+        ],
     }
 
 
-def test_recipe_edit_can_add_an_ingredient_without_inventing_quantity() -> None:
+def test_recipe_revision_can_add_an_ingredient_with_a_complete_final_recipe() -> None:
     recipe = {
         "id": "chicken-potatoes",
         "name": "курка з картоплею",
         "time_minutes": 55,
         "servings": 4,
-        "ingredients": [],
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+            {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+            {"name": "морква", "quantity": 150, "unit": "г", "note": None},
+        ],
         "steps": ["Наріжте курку, картоплю та моркву."],
     }
     events = [
@@ -274,15 +283,14 @@ def test_recipe_edit_can_add_an_ingredient_without_inventing_quantity() -> None:
             artifact={
                 "kind": "recipe_editor",
                 "status": "ok",
-                "action": "add",
-                "ingredient": "цибуля",
-                "replacement": "",
-                "quantity": None,
-                "unit": None,
-                "note": None,
-                "step_number": 1,
-                "step_text": "Наріжте курку, картоплю, моркву та цибулю.",
                 "reason": "Ви попросили додати цибулю.",
+                "ingredients": [
+                    {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+                    {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+                    {"name": "морква", "quantity": 150, "unit": "г", "note": None},
+                    {"name": "цибуля", "quantity": 1, "unit": "шт.", "note": None},
+                ],
+                "steps": ["Наріжте курку, картоплю, моркву та цибулю."],
             },
         )
     ]
@@ -291,8 +299,8 @@ def test_recipe_edit_can_add_an_ingredient_without_inventing_quantity() -> None:
 
     assert updated["ingredients"][-1] == {
         "name": "цибуля",
-        "quantity": None,
-        "unit": None,
+        "quantity": 1,
+        "unit": "шт.",
         "note": None,
     }
     assert updated["steps"][0] == "Наріжте курку, картоплю, моркву та цибулю."
@@ -302,6 +310,95 @@ def test_recipe_edit_can_add_an_ingredient_without_inventing_quantity() -> None:
     assert changes["steps"] == [
         {"index": 0, "reason": "Ви попросили додати цибулю."}
     ]
+
+
+def test_recipe_revision_replaces_the_complete_final_recipe() -> None:
+    recipe = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+            {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+        ],
+        "steps": ["Наріжте курку та картоплю.", "Запікайте 45 хвилин."],
+    }
+    events = [
+        ToolEvent(
+            name="recipe_editor",
+            status="ok",
+            content="Рецепт оновлено.",
+            artifact={
+                "kind": "recipe_editor",
+                "status": "ok",
+                "reason": "Ви попросили додати цибулю.",
+                "ingredients": [
+                    {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+                    {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+                    {"name": "цибуля", "quantity": 1, "unit": "шт.", "note": None},
+                ],
+                "steps": [
+                    "Наріжте курку, картоплю та цибулю.",
+                    "Запікайте 45 хвилин.",
+                ],
+            },
+        )
+    ]
+
+    updated, changes = apply_recipe_edits(recipe, events)
+
+    assert updated["ingredients"][-1] == {
+        "name": "цибуля",
+        "quantity": 1,
+        "unit": "шт.",
+        "note": None,
+    }
+    assert updated["steps"] == [
+        "Наріжте курку, картоплю та цибулю.",
+        "Запікайте 45 хвилин.",
+    ]
+    assert changes["ingredients"] == [
+        {"name": "цибуля", "reason": "Ви попросили додати цибулю."}
+    ]
+    assert changes["steps"] == [
+        {"index": 0, "reason": "Ви попросили додати цибулю."}
+    ]
+
+
+def test_recipe_revision_with_an_unused_new_ingredient_is_not_applied() -> None:
+    recipe = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+        ],
+        "steps": ["Наріжте курку.", "Запікайте 45 хвилин."],
+    }
+    events = [
+        ToolEvent(
+            name="recipe_editor",
+            status="ok",
+            content="Рецепт оновлено.",
+            artifact={
+                "kind": "recipe_editor",
+                "status": "ok",
+                "reason": "Ви попросили додати цибулю.",
+                "ingredients": [
+                    {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+                    {"name": "цибуля", "quantity": 1, "unit": "шт.", "note": None},
+                ],
+                "steps": ["Наріжте курку.", "Запікайте 45 хвилин."],
+            },
+        )
+    ]
+
+    updated, changes = apply_recipe_edits(recipe, events)
+
+    assert updated == recipe
+    assert changes == {"ingredients": [], "steps": [], "removed_ingredients": []}
 
 
 def test_discussion_transcript_and_inline_recipe_change_are_visible(monkeypatch) -> None:
@@ -380,6 +477,7 @@ def test_successful_follow_up_updates_transcript_and_canonical_result(monkeypatc
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     app = AppTest.from_file("app.py").run(timeout=10)
     app.session_state["agent"] = FakeFollowUpAgent()
+    app.session_state["agent_schema_version"] = AGENT_SCHEMA_VERSION
     app.session_state["current_recipe"] = {
         "id": "chicken-potatoes",
         "name": "курка з картоплею",
@@ -415,6 +513,7 @@ def test_second_follow_up_remains_available_after_a_completed_first_turn(monkeyp
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     app = AppTest.from_file("app.py").run(timeout=10)
     app.session_state["agent"] = TwoTurnFollowUpAgent()
+    app.session_state["agent_schema_version"] = AGENT_SCHEMA_VERSION
     app.session_state["current_recipe"] = {
         "id": "chicken-potatoes",
         "name": "курка з картоплею",
