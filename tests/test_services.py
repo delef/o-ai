@@ -60,3 +60,47 @@ def test_category_query_returns_tagged_recipe() -> None:
 
 def test_unknown_recipe_returns_empty_list() -> None:
     assert search_recipes("фуа-гра з трюфелем") == []
+
+
+from chefbot.services import convert_units, find_substitutions
+
+
+def test_direct_product_conversion() -> None:
+    result = convert_units(2, "склянки", "грами", "борошно")
+    assert result["status"] == "ok"
+    assert result["result"] == 300
+    assert result["to_unit"] == "г"
+
+
+def test_inverse_product_conversion() -> None:
+    result = convert_units(300, "г", "склянки", "борошно")
+    assert result["status"] == "ok"
+    assert result["result"] == 2
+
+
+def test_conversion_requires_product_when_density_matters() -> None:
+    result = convert_units(1, "склянка", "г")
+    assert result["status"] == "clarification"
+    assert result["reason"] == "product_required"
+
+
+def test_unsupported_conversion_is_explicit() -> None:
+    result = convert_units(3, "літр", "кг", "олія")
+    assert result["status"] == "not_found"
+
+
+def test_non_positive_amount_is_invalid() -> None:
+    result = convert_units(0, "склянка", "мл")
+    assert result["status"] == "invalid"
+
+
+def test_known_substitution_returns_grounded_options() -> None:
+    result = find_substitutions("Чим замінити яйця у випічці?")
+    assert result["status"] == "ok"
+    assert result["ingredient"] == "яйця"
+    assert result["options"]
+
+
+def test_unknown_substitution_is_explicit() -> None:
+    result = find_substitutions("трюфельна паста")
+    assert result == {"status": "not_found", "ingredient": "трюфельна паста", "options": []}

@@ -223,3 +223,123 @@ def search_recipes(query: str, limit: int = 3) -> list[dict[str, Any]]:
     for match in matches:
         match.pop("source_order", None)
     return matches[:limit]
+
+
+UNIT_ALIASES = {
+    "склянка": "склянка",
+    "склянки": "склянка",
+    "склянок": "склянка",
+    "ст л": "ст.л.",
+    "столова ложка": "ст.л.",
+    "столові ложки": "ст.л.",
+    "столових ложок": "ст.л.",
+    "ч л": "ч.л.",
+    "чайна ложка": "ч.л.",
+    "чайні ложки": "ч.л.",
+    "чайних ложок": "ч.л.",
+    "г": "г",
+    "грам": "г",
+    "грами": "г",
+    "грамів": "г",
+    "мл": "мл",
+    "мілілітр": "мл",
+    "мілілітри": "мл",
+    "мілілітрів": "мл",
+}
+
+
+def normalize_unit(value: str) -> str:
+    normalized = normalize_text(value).replace(".", "")
+    return UNIT_ALIASES.get(normalized, normalized)
+
+
+def _rounded(value: float) -> int | float:
+    rounded = round(value, 2)
+    return int(rounded) if rounded.is_integer() else rounded
+
+
+def convert_units(
+    amount: float,
+    from_unit: str,
+    to_unit: str,
+    product: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(amount, (int, float)) or amount <= 0:
+        return {"status": "invalid", "reason": "amount_must_be_positive"}
+
+    source = normalize_unit(from_unit)
+    target = normalize_unit(to_unit)
+    product_normalized = normalize_text(product or "") or None
+
+    if source == target:
+        return {
+            "status": "ok",
+            "amount": amount,
+            "from_unit": source,
+            "to_unit": target,
+            "product": product_normalized,
+            "result": _rounded(float(amount)),
+            "approximate": False,
+        }
+
+    direct = [
+        item
+        for item in load_conversions()
+        if normalize_unit(item["from_unit"]) == source and normalize_unit(item["to_unit"]) == target
+    ]
+    inverse = [
+        item
+        for item in load_conversions()
+        if normalize_unit(item["from_unit"]) == target and normalize_unit(item["to_unit"]) == source
+    ]
+
+    candidates = direct or inverse
+    product_specific = [item for item in candidates if item["product"] is not None]
+    generic = [item for item in candidates if item["product"] is None]
+
+    selected = None
+    if product_normalized:
+        selected = next(
+            (item for item in product_specific if normalize_text(item["product"]) == product_normalized),
+            None,
+        )
+    if selected is None and generic:
+        selected = generic[0]
+    if selected is None and product_specific and not product_normalized:
+        return {"status": "clarification", "reason": "product_required"}
+    if selected is None:
+        return {
+            "status": "not_found",
+            "amount": amount,
+            "from_unit": source,
+            "to_unit": target,
+            "product": product_normalized,
+        }
+
+    if direct:
+        result = float(amount) * float(selected["factor"])
+    else:
+        result = float(amount) / float(selected["factor"])
+
+    return {
+        "status": "ok",
+        "amount": amount,
+        "from_unit": source,
+        "to_unit": target,
+        "product": product_normalized,
+        "result": _rounded(result),
+        "approximate": True,
+    }
+
+
+def find_substitutions(ingredient: str) -> dict[str, Any]:
+    normalized = normalize_text(ingredient)
+    for key, options in load_substitutions().items():
+        key_normalized = normalize_text(key)
+        if key_normalized in normalized or normalized in key_normalized:
+            return {
+                "status": "ok",
+                "ingredient": key,
+                "options": copy.deepcopy(options),
+            }
+    return {"status": "not_found", "ingredient": normalized, "options": []}
