@@ -539,16 +539,15 @@ def _clean_recipe_revision_ingredients(value: Any) -> list[dict[str, Any]] | Non
         note_value = item.get("note")
         unit = str(unit_value).strip() if unit_value is not None else None
         note = str(note_value).strip() if note_value is not None else None
-        if not name or not unit:
-            if quantity is not None or not note:
-                return None
+        if not name:
+            return None
         if quantity is not None:
             if not isinstance(quantity, Real) or isinstance(quantity, bool) or quantity <= 0:
                 return None
             if not unit:
                 return None
-        elif not note:
-            return None
+        else:
+            unit = None
 
         normalized_name = normalize_text(name)
         if not normalized_name or normalized_name in seen_names:
@@ -610,28 +609,35 @@ def apply_recipe_edits(
     original_ingredients = recipe.get("ingredients", [])
     if not isinstance(original_ingredients, list):
         return copy.deepcopy(recipe), changes
-    original_names = {
-        normalize_text(str(item.get("name", "")))
+    original_by_name = {
+        normalize_text(str(item.get("name", ""))): item
         for item in original_ingredients
         if isinstance(item, dict)
     }
+    for item in ingredients:
+        old_item = original_by_name.get(normalize_text(item["name"]))
+        if old_item is not None and item["quantity"] is None and not item["note"]:
+            item["quantity"] = old_item.get("quantity")
+            item["unit"] = old_item.get("unit")
+            item["note"] = old_item.get("note")
+
+    original_names = set(original_by_name)
     added_ingredients = [
         item
         for item in ingredients
         if normalize_text(item["name"]) not in original_names
     ]
-    if any(not _ingredient_is_used_in_steps(item["name"], steps) for item in added_ingredients):
+    if any(
+        item["quantity"] is None and not item["note"]
+        or not _ingredient_is_used_in_steps(item["name"], steps)
+        for item in added_ingredients
+    ):
         return copy.deepcopy(recipe), changes
 
     updated = copy.deepcopy(recipe)
     updated["ingredients"] = ingredients
     updated["steps"] = steps
 
-    original_by_name = {
-        normalize_text(str(item.get("name", ""))): item
-        for item in original_ingredients
-        if isinstance(item, dict)
-    }
     revised_names = {normalize_text(item["name"]) for item in ingredients}
     for item in ingredients:
         old_item = original_by_name.get(normalize_text(item["name"]))

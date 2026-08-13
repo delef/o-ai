@@ -401,6 +401,78 @@ def test_recipe_revision_with_an_unused_new_ingredient_is_not_applied() -> None:
     assert changes == {"ingredients": [], "steps": [], "removed_ingredients": []}
 
 
+def test_recipe_revision_with_a_new_ingredient_without_amount_is_not_applied() -> None:
+    recipe = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+        ],
+        "steps": ["Наріжте курку."],
+    }
+    events = [
+        ToolEvent(
+            name="recipe_editor",
+            status="ok",
+            content="Рецепт оновлено.",
+            artifact={
+                "kind": "recipe_editor",
+                "status": "ok",
+                "reason": "Ви попросили додати цибулю.",
+                "ingredients": [
+                    {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+                    {"name": "цибуля", "quantity": None, "unit": None, "note": None},
+                ],
+                "steps": ["Наріжте курку та цибулю."],
+            },
+        )
+    ]
+
+    updated, changes = apply_recipe_edits(recipe, events)
+
+    assert updated == recipe
+    assert changes == {"ingredients": [], "steps": [], "removed_ingredients": []}
+
+
+def test_recipe_revision_preserves_verified_values_for_unchanged_ingredients() -> None:
+    recipe = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [
+            {"name": "сіль", "quantity": None, "unit": None, "note": "за смаком"},
+        ],
+        "steps": ["Додайте сіль."],
+    }
+    events = [
+        ToolEvent(
+            name="recipe_editor",
+            status="ok",
+            content="Рецепт оновлено.",
+            artifact={
+                "kind": "recipe_editor",
+                "status": "ok",
+                "reason": "Ви попросили уточнити крок.",
+                "ingredients": [
+                    {"name": "сіль", "quantity": None, "unit": None, "note": None},
+                ],
+                "steps": ["Додайте сіль після запікання."],
+            },
+        )
+    ]
+
+    updated, changes = apply_recipe_edits(recipe, events)
+
+    assert updated["ingredients"] == recipe["ingredients"]
+    assert changes["ingredients"] == []
+    assert changes["steps"] == [
+        {"index": 0, "reason": "Ви попросили уточнити крок."}
+    ]
+
+
 def test_discussion_transcript_and_inline_recipe_change_are_visible(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = AppTest.from_file("app.py").run(timeout=10)

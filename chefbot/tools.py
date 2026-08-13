@@ -170,11 +170,6 @@ def recipe_editor(
         if quantity is not None and not clean_unit:
             artifact["status"] = "invalid"
             return "Для точної кількості потрібно вказати одиницю.", artifact
-        if quantity is None and not clean_note:
-            artifact["status"] = "invalid"
-            return (
-                "Для інгредієнта без кількості додайте примітку, наприклад «за смаком»."
-            ), artifact
         artifact["ingredients"].append(
             {
                 "name": clean_name,

@@ -85,7 +85,7 @@ def test_recipe_editor_rejects_an_update_without_a_reason() -> None:
     assert "причину" in message.content
 
 
-def test_recipe_editor_rejects_an_ingredient_without_a_usable_amount() -> None:
+def test_recipe_editor_keeps_a_missing_amount_for_canonicalization() -> None:
     message = invoke(
         recipe_editor,
         "edit-ingredient-only",
@@ -94,8 +94,15 @@ def test_recipe_editor_rejects_an_ingredient_without_a_usable_amount() -> None:
         steps=["Наріжте цибулю."],
     )
 
-    assert message.artifact["status"] == "invalid"
-    assert "кількості" in message.content
+    assert message.artifact == {
+        "kind": "recipe_editor",
+        "status": "ok",
+        "reason": "Ви попросили додати цибулю.",
+        "ingredients": [
+            {"name": "цибуля", "quantity": None, "unit": None, "note": None}
+        ],
+        "steps": ["Наріжте цибулю."],
+    }
 
 
 def test_recipe_editor_schema_constrains_and_explains_step_updates() -> None:
