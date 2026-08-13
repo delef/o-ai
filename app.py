@@ -634,6 +634,7 @@ def _init_state() -> None:
         "error": "",
         "chat_history": [],
         "recipe_changes": empty_recipe_changes(),
+        "last_recipe_edit_applied": False,
         "pending_follow_up": None,
         "follow_up_phase": "idle",
     }
@@ -650,6 +651,7 @@ def _clear_search_result() -> None:
     st.session_state.error = ""
     st.session_state.chat_history = []
     st.session_state.recipe_changes = empty_recipe_changes()
+    st.session_state.last_recipe_edit_applied = False
     st.session_state.pending_follow_up = None
     st.session_state.follow_up_phase = "idle"
 
@@ -675,6 +677,7 @@ def _agent(api_key: str):
 
 
 def _perform_query(query: str, api_key: str, reset: bool) -> bool:
+    st.session_state.last_recipe_edit_applied = False
     previous_messages = [] if reset else list(st.session_state.messages)
     request_messages = [*previous_messages, HumanMessage(content=query)]
     try:
@@ -703,6 +706,7 @@ def _perform_query(query: str, api_key: str, reset: bool) -> bool:
         if _has_recipe_changes(changes):
             st.session_state.current_recipe = updated_recipe
             st.session_state.recipe_changes = changes
+            st.session_state.last_recipe_edit_applied = True
     elif reset:
         st.session_state.current_recipe = None
     return True
@@ -761,7 +765,10 @@ def _run_pending_follow_up() -> None:
 
     succeeded = _perform_query(query, api_key, reset=False)
     if succeeded:
-        answer = st.session_state.last_answer.strip() or "Рецепт оновлено."
+        if st.session_state.last_recipe_edit_applied:
+            answer = "Готово — рецепт оновлено вище."
+        else:
+            answer = st.session_state.last_answer.strip() or "Рецепт оновлено."
         st.session_state.chat_history = [
             *st.session_state.chat_history,
             {"role": "assistant", "content": answer},

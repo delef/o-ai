@@ -48,7 +48,12 @@ class FakeFollowUpAgent:
                         "reason": "Ви попросили замінити курятину на індичку.",
                     },
                 ),
-                AIMessage(content="Готово — рецепт оновлено вище."),
+                AIMessage(
+                    content=(
+                        "Ось повний рецепт: курка, картопля, морква, цибуля. "
+                        "Наріжте все та запікайте."
+                    )
+                ),
             ]
         }
 
@@ -372,6 +377,7 @@ def test_successful_follow_up_updates_transcript_and_canonical_result(monkeypatc
     assert [message.name for message in app.chat_message] == ["user", "assistant"]
     assert app.chat_message[0].markdown[0].value == "Заміни куряче філе на індичку"
     assert app.chat_message[1].markdown[0].value == answer
+    assert "Ось повний рецепт" not in app.chat_message[1].markdown[0].value
     assert app.session_state["current_recipe"]["ingredients"][0]["name"] == "філе індички"
     assert app.session_state["current_recipe"]["steps"][0] == "Наріжте індичку, картоплю та моркву."
     assert app.session_state["recipe_changes"]["ingredients"] == [
