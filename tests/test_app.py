@@ -58,6 +58,28 @@ class FakeFollowUpAgent:
         }
 
 
+class TwoTurnFollowUpAgent:
+    def invoke(self, state):
+        user_turns = [
+            message
+            for message in state["messages"]
+            if getattr(message, "type", "") == "human"
+        ]
+        if len(user_turns) == 1:
+            return {
+                "messages": [
+                    *state["messages"],
+                    AIMessage(content="Перша відповідь."),
+                ]
+            }
+        return {
+            "messages": [
+                *state["messages"],
+                AIMessage(content="Друга відповідь."),
+            ]
+        }
+
+
 def test_get_api_key_prefers_environment(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "environment-key")
     assert get_api_key({"OPENAI_API_KEY": "secret-key"}) == "environment-key"
@@ -387,6 +409,36 @@ def test_successful_follow_up_updates_transcript_and_canonical_result(monkeypatc
         }
     ]
     assert not any(answer in element.value for element in app.info)
+
+
+def test_second_follow_up_remains_available_after_a_completed_first_turn(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    app = AppTest.from_file("app.py").run(timeout=10)
+    app.session_state["agent"] = TwoTurnFollowUpAgent()
+    app.session_state["current_recipe"] = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [],
+        "steps": [],
+    }
+    app.run(timeout=10)
+
+    app.chat_input[0].set_value("Перше уточнення").run(timeout=10)
+    assert app.session_state["follow_up_phase"] == "complete"
+    assert app.chat_input[0].disabled is False
+
+    app.chat_input[0].set_value("Друге уточнення").run(timeout=10)
+
+    assert app.session_state["follow_up_phase"] == "complete"
+    assert [message.name for message in app.chat_message] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert app.chat_message[3].markdown[0].value == "Друга відповідь."
 
 
 def test_inline_change_styles_support_hover_and_keyboard_explanations() -> None:

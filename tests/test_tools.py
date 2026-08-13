@@ -88,6 +88,20 @@ def test_recipe_editor_rejects_an_update_without_a_reason() -> None:
     assert "причину" in message.content
 
 
+def test_recipe_editor_rejects_partial_ingredient_change_without_recipe_step() -> None:
+    message = invoke(
+        recipe_editor,
+        "edit-ingredient-only",
+        action="add",
+        ingredient="цибуля",
+        note="за смаком",
+        reason="Ви попросили додати цибулю.",
+    )
+
+    assert message.artifact["status"] == "invalid"
+    assert "крок приготування" in message.content
+
+
 def test_recipe_editor_schema_constrains_and_explains_step_updates() -> None:
     schema = recipe_editor.args_schema.model_json_schema()
 

@@ -112,8 +112,8 @@ def recipe_editor(
         quantity: Точна кількість лише з явних даних; 0 означає, що її не вказано.
         unit: Одиниця для quantity; порожня, коли кількість не вказана.
         note: Коротка явна примітка до інгредієнта, наприклад «за смаком».
-        step_number: 1-based номер кроку для одночасного або окремого оновлення; 0 без зміни.
-        step_text: Повний новий текст кроку; порожній без зміни кроку.
+        step_number: 1-based номер обов'язкового кроку для зміни інгредієнта або окремого оновлення.
+        step_text: Повний новий текст кроку, обов'язковий для зміни інгредієнта або кроку.
     """
     normalized_action = action.strip().casefold()
     clean_ingredient = ingredient.strip()
@@ -149,6 +149,11 @@ def recipe_editor(
         invalid_reason = "Для точної кількості потрібно вказати одиницю."
     elif (step_number > 0) != bool(clean_step):
         invalid_reason = "Номер і новий текст кроку потрібно передати разом."
+    elif normalized_action in {"add", "replace", "remove"} and step_number <= 0:
+        invalid_reason = (
+            "Зміна інгредієнта має містити оновлений крок приготування, "
+            "щоб рецепт залишався цілісним."
+        )
     elif normalized_action == "update_step" and step_number <= 0:
         invalid_reason = "Для зміни приготування потрібно вказати крок."
 
