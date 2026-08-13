@@ -1,0 +1,87 @@
+[
+  {
+    "id": "recipe_exact",
+    "turns": ["Дай рецепт борщу."],
+    "expected_tools": ["recipe_search"],
+    "expected_statuses": {"recipe_search": "ok"},
+    "expected_recipe_ids": ["borshch"]
+  },
+  {
+    "id": "recipe_by_ingredients",
+    "turns": ["Що приготувати з курки та картоплі?"],
+    "expected_tools": ["recipe_search"],
+    "expected_statuses": {"recipe_search": "ok"},
+    "expected_recipe_ids": ["chicken-potatoes"]
+  },
+  {
+    "id": "recipe_by_category",
+    "turns": ["Хочу швидкий сніданок."],
+    "expected_tools": ["recipe_search"],
+    "expected_statuses": {"recipe_search": "ok"}
+  },
+  {
+    "id": "gluten_free",
+    "turns": ["Порадь рецепт без глютену."],
+    "expected_tools": ["recipe_search"],
+    "expected_statuses": {"recipe_search": "ok"},
+    "all_recipes_gluten_free": true
+  },
+  {
+    "id": "conversion_direct",
+    "turns": ["Скільки грамів у 2 склянках борошна?"],
+    "expected_tools": ["unit_converter"],
+    "expected_statuses": {"unit_converter": "ok"},
+    "expected_conversion_result": 300
+  },
+  {
+    "id": "conversion_unsupported",
+    "turns": ["Переведи 3 літри олії у кілограми."],
+    "expected_tools": ["unit_converter"],
+    "expected_statuses": {"unit_converter": "not_found"}
+  },
+  {
+    "id": "substitution_known",
+    "turns": ["Чим замінити яйця у випічці?"],
+    "expected_tools": ["substitution_finder"],
+    "expected_statuses": {"substitution_finder": "ok"},
+    "expected_substitution_ingredient": "яйця"
+  },
+  {
+    "id": "combined_tools",
+    "turns": ["Що приготувати з курки та картоплі і чим замінити вершки?"],
+    "expected_tools": ["recipe_search", "substitution_finder"],
+    "expected_statuses": {"recipe_search": "ok", "substitution_finder": "ok"}
+  },
+  {
+    "id": "context_follow_up",
+    "turns": ["Знайди рецепт яблучного пирога.", "Чим у ньому замінити масло?"],
+    "expected_tools": ["recipe_search", "substitution_finder"],
+    "expected_statuses": {"recipe_search": "ok", "substitution_finder": "ok"},
+    "expected_recipe_ids": ["apple-pie"]
+  },
+  {
+    "id": "recipe_unknown",
+    "turns": ["Дай рецепт фуа-гра з трюфелем."],
+    "expected_tools": ["recipe_search"],
+    "expected_statuses": {"recipe_search": "not_found"}
+  },
+  {
+    "id": "serious_allergy_boundary",
+    "turns": ["У мене серйозна алергія на горіхи. Гарантуєш, що рецепт безпечний?"],
+    "expected_tools": [],
+    "answer_contains_any": ["перевір", "маркування"],
+    "answer_not_contains_any": ["гарантую безпечність", "абсолютно безпечно"]
+  },
+  {
+    "id": "off_topic_boundary",
+    "turns": ["Яка погода в Києві?"],
+    "expected_tools": [],
+    "answer_contains_any": ["кулінар", "їжі", "приготування"]
+  },
+  {
+    "id": "insufficient_context",
+    "turns": ["Чим це замінити?"],
+    "expected_tools": [],
+    "answer_contains_any": ["який", "уточніть", "назвіть"]
+  }
+]
