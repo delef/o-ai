@@ -340,6 +340,24 @@ hr { border-color: var(--chef-divider); }
 </style>
 """
 
+SEARCHING_ICON_STYLE = """
+<style>
+@keyframes chef-search-spin {
+  to { transform: rotate(360deg); }
+}
+.st-key-ingredient-search-button [data-testid="stIconMaterial"] {
+  display: inline-block;
+  animation: chef-search-spin 0.8s linear infinite;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-key-ingredient-search-button [data-testid="stIconMaterial"] {
+    animation: none;
+  }
+}
+</style>
+"""
+
 
 def get_api_key(secrets: Mapping[str, Any] | None = None) -> str | None:
     return os.environ.get("OPENAI_API_KEY") or (
@@ -376,6 +394,10 @@ def _init_state() -> None:
         "last_events": [],
         "last_answer": "",
         "error": "",
+        "chat_history": [],
+        "recipe_updates": [],
+        "pending_follow_up": None,
+        "follow_up_phase": "idle",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -388,6 +410,10 @@ def _clear_search_result() -> None:
     st.session_state.last_events = []
     st.session_state.last_answer = ""
     st.session_state.error = ""
+    st.session_state.chat_history = []
+    st.session_state.recipe_updates = []
+    st.session_state.pending_follow_up = None
+    st.session_state.follow_up_phase = "idle"
 
 
 def _ingredients_changed() -> None:
@@ -410,18 +436,18 @@ def _agent(api_key: str):
     return st.session_state.agent
 
 
-def _perform_query(query: str, api_key: str, reset: bool) -> None:
+def _perform_query(query: str, api_key: str, reset: bool) -> bool:
     previous_messages = [] if reset else list(st.session_state.messages)
     request_messages = [*previous_messages, HumanMessage(content=query)]
     try:
         result = run_chefbot(_agent(api_key), request_messages)
     except MissingAPIKeyError:
         st.session_state.error = "Додайте OPENAI_API_KEY у змінні середовища або Streamlit secrets."
-        return
+        return False
     except Exception:
         LOGGER.exception("ChefBot request failed")
         st.session_state.error = "ChefBot тимчасово не відповідає. Повторіть запит за хвилину."
-        return
+        return False
 
     recipe = latest_recipe(result.tool_events)
     st.session_state.messages = result.messages
@@ -432,6 +458,7 @@ def _perform_query(query: str, api_key: str, reset: bool) -> None:
         st.session_state.current_recipe = recipe
     elif reset:
         st.session_state.current_recipe = None
+    return True
 
 
 def _run_pending_recipe_search() -> None:
@@ -454,6 +481,57 @@ def _run_pending_recipe_search() -> None:
     st.rerun()
 
 
+def _queue_follow_up(message: str) -> None:
+    content = message.strip()
+    if not content:
+        return
+    st.session_state.chat_history = [
+        *st.session_state.chat_history,
+        {"role": "user", "content": content},
+    ]
+    st.session_state.pending_follow_up = content
+    st.session_state.follow_up_phase = "responding"
+    st.session_state.error = ""
+
+
+def _run_pending_follow_up() -> None:
+    query = st.session_state.pending_follow_up
+    if not query:
+        return
+
+    st.session_state.pending_follow_up = None
+    api_key = get_api_key(_streamlit_secrets())
+    if not api_key:
+        message = "Додайте OPENAI_API_KEY перед продовженням розмови."
+        st.session_state.error = message
+        st.session_state.chat_history = [
+            *st.session_state.chat_history,
+            {"role": "assistant", "content": message},
+        ]
+        st.session_state.follow_up_phase = "error"
+        st.rerun()
+        return
+
+    succeeded = _perform_query(query, api_key, reset=False)
+    if succeeded:
+        answer = st.session_state.last_answer.strip() or "Рецепт оновлено."
+        st.session_state.chat_history = [
+            *st.session_state.chat_history,
+            {"role": "assistant", "content": answer},
+        ]
+        if st.session_state.current_recipe:
+            st.session_state.recipe_updates = [answer]
+        st.session_state.follow_up_phase = "complete"
+    else:
+        message = st.session_state.error or "ChefBot не зміг оновити рецепт."
+        st.session_state.chat_history = [
+            *st.session_state.chat_history,
+            {"role": "assistant", "content": message},
+        ]
+        st.session_state.follow_up_phase = "error"
+    st.rerun()
+
+
 def _render_tool_events(events: list[ToolEvent]) -> None:
     for event in events:
         if event.status == "ok":
@@ -469,7 +547,7 @@ def _render_tool_events(events: list[ToolEvent]) -> None:
             st.error(f"{event.name}: інструмент тимчасово недоступний.")
 
 
-def _render_recipe(recipe: dict[str, Any]) -> None:
+def _render_recipe(recipe: dict[str, Any], updates: list[str] | None = None) -> None:
     st.header(recipe["name"].capitalize())
     st.markdown(
         '<div class="chef-meta">'
@@ -479,6 +557,11 @@ def _render_recipe(recipe: dict[str, Any]) -> None:
         f"{recipe['servings']} порції</span></div>",
         unsafe_allow_html=True,
     )
+    if updates:
+        st.info(
+            f"**Оновлення після обговорення**\n\n{updates[-1]}",
+            icon=":material/edit_note:",
+        )
     st.divider()
 
     ingredients_column, steps_column = st.columns([2, 3], gap="large")
@@ -493,6 +576,24 @@ def _render_recipe(recipe: dict[str, Any]) -> None:
             st.markdown(f"**{index}.** {step}")
 
 
+def _render_discussion() -> None:
+    st.divider()
+    st.subheader("Обговорення рецепта")
+    if not st.session_state.chat_history:
+        st.caption("Поставте запитання або уточніть рецепт — відповідь оновить результат вище.")
+    for turn in st.session_state.chat_history:
+        with st.chat_message(turn["role"]):
+            st.markdown(turn["content"])
+    if st.session_state.follow_up_phase == "responding":
+        with st.chat_message("assistant"):
+            st.status(
+                "ChefBot оновлює рецепт…",
+                state="running",
+                expanded=False,
+                type="compact",
+            )
+
+
 def main() -> None:
     st.set_page_config(
         page_title="ChefBot",
@@ -502,6 +603,8 @@ def main() -> None:
     )
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
     _init_state()
+    if st.session_state.search_phase == "searching":
+        st.markdown(SEARCHING_ICON_STYLE, unsafe_allow_html=True)
 
     st.markdown(
         '<div class="chef-header"><span class="chef-logo" aria-hidden="true">chef_hat</span>'
@@ -561,33 +664,30 @@ def main() -> None:
 
     _render_tool_events(st.session_state.last_events)
     if st.session_state.current_recipe:
-        _render_recipe(st.session_state.current_recipe)
+        _render_recipe(
+            st.session_state.current_recipe,
+            updates=st.session_state.recipe_updates,
+        )
     elif any(event.name == "recipe_search" for event in st.session_state.last_events):
         st.info("Спробуйте змінити продукти або сформулювати інший запит.")
 
-    show_answer = st.session_state.last_answer and (
-        not st.session_state.current_recipe
-        or any(event.name != "recipe_search" for event in st.session_state.last_events)
-    )
+    show_answer = st.session_state.last_answer and not st.session_state.current_recipe
     if show_answer:
         with st.expander("Відповідь ChefBot"):
             st.write(st.session_state.last_answer)
 
-    follow_up = None
     if st.session_state.current_recipe or st.session_state.last_answer:
+        _render_discussion()
         follow_up = st.chat_input(
             "Уточніть рецепт або запитайте про заміну…",
             key="chef-follow-up",
             accept_audio=False,
+            disabled=st.session_state.follow_up_phase == "responding",
         )
-    if follow_up:
-        api_key = get_api_key(_streamlit_secrets())
-        if not api_key:
-            st.session_state.error = "Додайте OPENAI_API_KEY перед продовженням розмови."
-        else:
-            with st.spinner("ChefBot уточнює відповідь..."):
-                _perform_query(follow_up, api_key, reset=False)
-        st.rerun()
+        if follow_up:
+            _queue_follow_up(str(follow_up))
+            st.rerun()
+        _run_pending_follow_up()
 
 
 if __name__ == "__main__":

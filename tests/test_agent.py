@@ -1,6 +1,7 @@
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 
 from chefbot.agent import MissingAPIKeyError, create_chefbot, run_chefbot
+from chefbot.prompt import SYSTEM_PROMPT
 
 
 class FakeAgent:
@@ -63,3 +64,9 @@ def test_run_does_not_count_usage_from_prior_history() -> None:
     )
     result = run_chefbot(FakeAgent(), [HumanMessage(content="Продовжуй"), prior])
     assert result.usage.total_tokens == 250
+
+
+def test_prompt_requires_a_canonical_follow_up_update() -> None:
+    assert "Оновлення до рецепта" in SYSTEM_PROMPT
+    assert "попередні підтверджені зміни" in SYSTEM_PROMPT
+    assert "рецепт ще не змінено" in SYSTEM_PROMPT

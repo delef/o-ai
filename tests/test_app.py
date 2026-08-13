@@ -1,9 +1,20 @@
 import re
 
+from langchain.messages import AIMessage
 from streamlit.testing.v1 import AppTest
 
 from app import PAGE_STYLE, get_api_key, latest_recipe
 from chefbot.agent import ToolEvent
+
+
+class FakeFollowUpAgent:
+    def invoke(self, state):
+        return {
+            "messages": [
+                *state["messages"],
+                AIMessage(content="Оновлення до рецепта: замініть куряче філе на філе індички."),
+            ]
+        }
 
 
 def test_get_api_key_prefers_environment(monkeypatch) -> None:
@@ -102,12 +113,104 @@ def test_searching_state_is_visible_and_disables_repeat_submit(monkeypatch) -> N
     assert app.button[0].disabled
     assert app.status[0].label == "ChefBot шукає перевірений рецепт…"
     assert app.status[0].state == "running"
+    assert any(
+        "@keyframes chef-search-spin" in element.value
+        and "animation: chef-search-spin" in element.value
+        for element in app.markdown
+    )
+
+
+def test_idle_search_icon_does_not_receive_spinner_animation(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = AppTest.from_file("app.py").run(timeout=10)
+
+    assert not any(
+        "@keyframes chef-search-spin" in element.value for element in app.markdown
+    )
 
 
 def test_follow_up_is_hidden_until_conversation_context_exists(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = AppTest.from_file("app.py").run()
     assert not app.chat_input
+
+
+def test_discussion_transcript_and_recipe_update_are_visible(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = AppTest.from_file("app.py").run(timeout=10)
+    app.session_state["current_recipe"] = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [],
+        "steps": [],
+    }
+    app.session_state["chat_history"] = [
+        {"role": "user", "content": "Чим замінити куряче філе?"},
+        {"role": "assistant", "content": "Можна використати філе індички."},
+    ]
+    app.session_state["recipe_updates"] = [
+        "Попереднє уточнення.",
+        "Можна використати філе індички.",
+    ]
+    app.run(timeout=10)
+
+    assert [message.name for message in app.chat_message] == ["user", "assistant"]
+    assert app.chat_message[0].markdown[0].value == "Чим замінити куряче філе?"
+    assert app.chat_message[1].markdown[0].value == "Можна використати філе індички."
+    assert any(
+        "Оновлення після обговорення" in element.value
+        and "Можна використати філе індички." in element.value
+        and "Попереднє уточнення." not in element.value
+        for element in app.info
+    )
+
+
+def test_follow_up_submission_preserves_user_message_when_api_is_unavailable(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = AppTest.from_file("app.py").run(timeout=10)
+    app.session_state["current_recipe"] = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [],
+        "steps": [],
+    }
+    app.run(timeout=10)
+
+    app.chat_input[0].set_value("Заміни куряче філе").run(timeout=10)
+
+    assert [message.name for message in app.chat_message] == ["user", "assistant"]
+    assert app.chat_message[0].markdown[0].value == "Заміни куряче філе"
+    assert "OPENAI_API_KEY" in app.chat_message[1].markdown[0].value
+    assert app.session_state["current_recipe"]["id"] == "chicken-potatoes"
+    assert app.session_state["recipe_updates"] == []
+
+
+def test_successful_follow_up_updates_transcript_and_canonical_result(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    app = AppTest.from_file("app.py").run(timeout=10)
+    app.session_state["agent"] = FakeFollowUpAgent()
+    app.session_state["current_recipe"] = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [],
+        "steps": [],
+    }
+    app.run(timeout=10)
+
+    app.chat_input[0].set_value("Заміни куряче філе на індичку").run(timeout=10)
+
+    answer = "Оновлення до рецепта: замініть куряче філе на філе індички."
+    assert [message.name for message in app.chat_message] == ["user", "assistant"]
+    assert app.chat_message[0].markdown[0].value == "Заміни куряче філе на індичку"
+    assert app.chat_message[1].markdown[0].value == answer
+    assert app.session_state["recipe_updates"] == [answer]
+    assert any(answer in element.value for element in app.info)
 
 
 def test_styles_use_native_placeholder_only() -> None:
