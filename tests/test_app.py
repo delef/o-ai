@@ -61,6 +61,49 @@ def test_ingredient_selection_is_not_batched_inside_a_form(monkeypatch) -> None:
     assert app.multiselect[0].proto.form_id == ""
 
 
+def test_ingredient_picker_uses_one_session_state_key(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = AppTest.from_file("app.py").run(timeout=10)
+
+    assert "ingredient-picker" not in app.session_state.filtered_state
+    app.multiselect[0].set_value(["рис", "помідори"]).run(timeout=10)
+    assert app.session_state["ingredients"] == ["рис", "помідори"]
+
+
+def test_changing_ingredients_clears_stale_search_result(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = AppTest.from_file("app.py").run(timeout=10)
+    app.session_state["current_recipe"] = {
+        "id": "old",
+        "name": "Старий результат",
+        "time_minutes": 1,
+        "servings": 1,
+        "ingredients": [{"name": "рис", "quantity": 1, "unit": "г", "note": None}],
+        "steps": ["Старий крок"],
+    }
+    app.session_state["last_answer"] = "Стара відповідь"
+    app.session_state["messages"] = ["old"]
+
+    app.multiselect[0].set_value(["рис"]).run(timeout=10)
+
+    assert app.session_state["current_recipe"] is None
+    assert app.session_state["last_answer"] == ""
+    assert app.session_state["messages"] == []
+    assert app.session_state["search_phase"] == "idle"
+
+
+def test_searching_state_is_visible_and_disables_repeat_submit(monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    app = AppTest.from_file("app.py").run(timeout=10)
+    app.session_state["search_phase"] = "searching"
+    app.run(timeout=10)
+
+    assert app.button[0].label == "Шукаємо страву…"
+    assert app.button[0].disabled
+    assert app.status[0].label == "ChefBot шукає перевірений рецепт…"
+    assert app.status[0].state == "running"
+
+
 def test_follow_up_is_hidden_until_conversation_context_exists(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = AppTest.from_file("app.py").run()
@@ -86,7 +129,24 @@ def test_multiselect_input_remains_in_the_flex_layout() -> None:
 
 
 def test_mobile_input_resets_the_desktop_flex_basis() -> None:
-    assert "flex: 0 0 auto !important" in PAGE_STYLE
+    assert "flex: 1 0 100% !important" in PAGE_STYLE
+
+
+def test_mobile_ingredient_tags_use_full_width() -> None:
+    mobile_styles = PAGE_STYLE.split("@media (max-width: 720px)", 1)[1]
+    tag_rule = re.search(
+        r'\[data-testid="stMultiSelect"\] \[data-baseweb="tag"\] \{(?P<body>.*?)\n  \}',
+        mobile_styles,
+        re.DOTALL,
+    )
+    assert tag_rule is not None
+    assert "flex: 1 1 100%" in tag_rule.group("body")
+    assert "width: 100% !important" in tag_rule.group("body")
+
+
+def test_search_controls_share_one_responsive_surface() -> None:
+    assert ".st-key-ingredient-search" in PAGE_STYLE
+    assert '[data-baseweb="tag"]:nth-child' not in PAGE_STYLE
 
 
 def test_ingredient_remove_control_has_a_clear_button_target() -> None:
@@ -112,10 +172,14 @@ def test_ingredient_remove_control_has_hover_and_focus_states() -> None:
     assert "outline: 3px solid rgb(228 71 51 / 25%)" in PAGE_STYLE
 
 
-def test_desktop_search_action_aligns_with_ingredient_controls() -> None:
-    assert "@media (min-width: 721px)" in PAGE_STYLE
-    assert ".st-key-ingredient-search-button" in PAGE_STYLE
-    assert "padding-bottom: 0.375rem" in PAGE_STYLE
+def test_search_action_fills_the_shared_search_surface() -> None:
+    rule = re.search(
+        r"\.st-key-ingredient-search \.st-key-ingredient-search-button \{(?P<body>.*?)\n\}",
+        PAGE_STYLE,
+        re.DOTALL,
+    )
+    assert rule is not None
+    assert "width: 100%" in rule.group("body")
 
 
 def test_submit_without_api_key_shows_setup_error_and_preserves_selection(monkeypatch) -> None:
@@ -125,3 +189,5 @@ def test_submit_without_api_key_shows_setup_error_and_preserves_selection(monkey
     assert not app.exception
     assert "OPENAI_API_KEY" in app.error[0].value
     assert app.multiselect[0].value == ["куряче філе", "картопля", "морква"]
+    assert app.session_state["search_phase"] == "error"
+    assert app.session_state["pending_search"] is False

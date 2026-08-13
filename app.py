@@ -129,6 +129,17 @@ ul li::marker { color: var(--chef-accent); }
   font-size: 1.5rem;
   font-weight: 400;
 }
+.st-key-ingredient-search {
+  margin: 1.25rem 0 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--chef-divider);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 72%);
+}
+.st-key-ingredient-search .st-key-ingredient-search-button {
+  width: 100%;
+  margin-top: 0.35rem;
+}
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
   min-height: 4.3rem;
   padding: 0;
@@ -149,7 +160,9 @@ ul li::marker { color: var(--chef-accent); }
   width: 100%;
 }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {
-  width: 15.25rem;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
   min-height: 4.3rem;
   padding: 0 0.75rem 0 1rem;
   background: #fff;
@@ -158,8 +171,6 @@ ul li::marker { color: var(--chef-accent); }
   border-radius: 0.65rem;
   justify-content: space-between;
 }
-[data-testid="stMultiSelect"] [data-baseweb="tag"]:first-child { width: 17rem; }
-[data-testid="stMultiSelect"] [data-baseweb="tag"]:nth-child(3) { width: 14.6rem; }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] span[title] {
   font-size: 1.05rem;
   font-weight: 500;
@@ -241,11 +252,6 @@ ul li::marker { color: var(--chef-accent); }
   opacity: 1 !important;
 }
 hr { border-color: var(--chef-divider); }
-@media (min-width: 721px) {
-  .st-key-ingredient-search-button {
-    padding-bottom: 0.375rem;
-  }
-}
 @media (max-width: 720px) {
   .block-container { padding: 1rem 1rem 7rem; }
   h1 {
@@ -269,6 +275,10 @@ hr { border-color: var(--chef-divider); }
     font-size: 0.95rem;
   }
   .chef-meta { gap: 1.5rem; }
+  .st-key-ingredient-search {
+    margin-top: 1rem;
+    padding: 0.8rem;
+  }
   [data-testid="stMultiSelect"] [data-baseweb="select"] > div,
   [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {
     width: 100% !important;
@@ -276,22 +286,26 @@ hr { border-color: var(--chef-divider); }
     max-height: none !important;
     overflow: visible !important;
   }
-  [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {
-    align-items: stretch !important;
+  [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div:first-child {
+    align-items: center !important;
     flex: 1 0 100% !important;
-    flex-direction: column !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 0.625rem;
     min-width: 100% !important;
   }
   [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div:last-child {
     display: none !important;
   }
-  [data-testid="stMultiSelect"] [data-baseweb="tag"],
-  [data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"]) {
+  [data-testid="stMultiSelect"] [data-baseweb="tag"] {
+    flex: 1 1 100%;
     width: 100% !important;
     min-width: 100%;
   }
   [data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"]) {
-    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    flex: 1 0 100% !important;
   }
   [data-testid="stBottom"] > div {
     padding-left: 1rem !important;
@@ -329,6 +343,8 @@ def _streamlit_secrets() -> Mapping[str, Any]:
 def _init_state() -> None:
     defaults = {
         "ingredients": ["куряче філе", "картопля", "морква"],
+        "search_phase": "idle",
+        "pending_search": False,
         "messages": [],
         "agent": None,
         "current_recipe": None,
@@ -339,6 +355,28 @@ def _init_state() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def _clear_search_result() -> None:
+    st.session_state.messages = []
+    st.session_state.current_recipe = None
+    st.session_state.last_events = []
+    st.session_state.last_answer = ""
+    st.session_state.error = ""
+
+
+def _ingredients_changed() -> None:
+    _clear_search_result()
+    st.session_state.search_phase = "idle"
+    st.session_state.pending_search = False
+
+
+def _queue_recipe_search() -> None:
+    if not st.session_state.ingredients:
+        return
+    _clear_search_result()
+    st.session_state.search_phase = "searching"
+    st.session_state.pending_search = True
 
 
 def _agent(api_key: str):
@@ -369,6 +407,26 @@ def _perform_query(query: str, api_key: str, reset: bool) -> None:
         st.session_state.current_recipe = recipe
     elif reset:
         st.session_state.current_recipe = None
+
+
+def _run_pending_recipe_search() -> None:
+    if not st.session_state.pending_search:
+        return
+
+    st.session_state.pending_search = False
+    api_key = get_api_key(_streamlit_secrets())
+    if not api_key:
+        st.session_state.error = (
+            "Додайте OPENAI_API_KEY у змінні середовища або `.streamlit/secrets.toml`."
+        )
+        st.session_state.search_phase = "error"
+        st.rerun()
+        return
+
+    query = "Знайди страву з продуктів: " + ", ".join(st.session_state.ingredients) + "."
+    _perform_query(query, api_key, reset=True)
+    st.session_state.search_phase = "error" if st.session_state.error else "complete"
+    st.rerun()
 
 
 def _render_tool_events(events: list[ToolEvent]) -> None:
@@ -432,39 +490,39 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    ingredients_column, action_column = st.columns([4, 1], vertical_alignment="bottom")
-    with ingredients_column:
+    with st.container(key="ingredient-search"):
         selected = st.multiselect(
             "Продукти",
             options=known_ingredients(),
-            default=st.session_state.ingredients,
             placeholder="Додати продукт",
             accept_new_options=True,
             max_selections=12,
-            key="ingredient-picker",
+            key="ingredients",
+            on_change=_ingredients_changed,
             label_visibility="visible",
         )
-    with action_column:
-        submitted = st.button(
-            "Знайти страву",
+        searching = st.session_state.search_phase == "searching"
+        st.button(
+            "Шукаємо страву…" if searching else "Знайти страву",
             type="primary",
             use_container_width=True,
-            disabled=not selected,
+            disabled=not selected or searching,
             key="ingredient-search-button",
+            icon=":material/progress_activity:" if searching else ":material/search:",
+            on_click=_queue_recipe_search,
         )
 
-    if not selected:
-        st.caption("Додайте хоча б один продукт.")
+        if not selected:
+            st.caption("Додайте хоча б один продукт.")
+        elif searching:
+            st.status(
+                "ChefBot шукає перевірений рецепт…",
+                state="running",
+                expanded=False,
+                type="compact",
+            )
 
-    if submitted:
-        st.session_state.ingredients = selected
-        api_key = get_api_key(_streamlit_secrets())
-        if not api_key:
-            st.session_state.error = "Додайте OPENAI_API_KEY у змінні середовища або `.streamlit/secrets.toml`."
-        else:
-            query = "Знайди страву з продуктів: " + ", ".join(selected) + "."
-            with st.spinner("ChefBot шукає перевірений рецепт..."):
-                _perform_query(query, api_key, reset=True)
+    _run_pending_recipe_search()
 
     if st.session_state.error:
         st.error(st.session_state.error)
