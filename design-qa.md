@@ -23,7 +23,7 @@
 
 - Автоматичні тести Streamlit покривають єдиний state key, очищення застарілого
   результату, loading-state, блокування повторного submit і мобільні CSS-правила.
-- Повний набір: `69 passed` з `pytest==9.0.3`.
+- Повний набір: `71 passed` з `pytest==9.0.3`.
 - Мобільний стан повторно перевірено в Chrome після фінальної CSS-правки.
 - На desktop chip, add-product input і CTA мають однакові `top`, `bottom` та
   `height`; виміряний alignment delta дорівнює `0 px`.

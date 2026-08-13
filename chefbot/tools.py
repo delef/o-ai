@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from langchain.tools import tool
 
@@ -90,9 +90,9 @@ def substitution_finder(ingredient: str) -> tuple[str, dict[str, Any]]:
     return "\n".join(lines), artifact
 
 
-@tool(response_format="content_and_artifact")
+@tool(response_format="content_and_artifact", parse_docstring=True)
 def recipe_editor(
-    action: str,
+    action: Literal["add", "replace", "remove", "update_step"],
     reason: str,
     ingredient: str = "",
     replacement: str = "",
@@ -102,7 +102,19 @@ def recipe_editor(
     step_number: int = 0,
     step_text: str = "",
 ) -> tuple[str, dict[str, Any]]:
-    """Зафіксуй підтверджену зміну поточного рецепта і коротку причину для користувача."""
+    """Зафіксуй підтверджену зміну поточного рецепта.
+
+    Args:
+        action: Використай add, replace або remove для інгредієнта; update_step, коли змінюється лише крок.
+        reason: Коротка видима причина на основі явного запиту користувача, без вигаданої користі.
+        ingredient: Точна назва нового або наявного інгредієнта; порожня для update_step.
+        replacement: Нова назва інгредієнта, обов'язкова лише для replace.
+        quantity: Точна кількість лише з явних даних; 0 означає, що її не вказано.
+        unit: Одиниця для quantity; порожня, коли кількість не вказана.
+        note: Коротка явна примітка до інгредієнта, наприклад «за смаком».
+        step_number: 1-based номер кроку для одночасного або окремого оновлення; 0 без зміни.
+        step_text: Повний новий текст кроку; порожній без зміни кроку.
+    """
     normalized_action = action.strip().casefold()
     clean_ingredient = ingredient.strip()
     clean_replacement = replacement.strip()

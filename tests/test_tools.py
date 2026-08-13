@@ -86,3 +86,32 @@ def test_recipe_editor_rejects_an_update_without_a_reason() -> None:
 
     assert message.artifact["status"] == "invalid"
     assert "причину" in message.content
+
+
+def test_recipe_editor_schema_constrains_and_explains_step_updates() -> None:
+    schema = recipe_editor.args_schema.model_json_schema()
+
+    assert schema["properties"]["action"]["enum"] == [
+        "add",
+        "replace",
+        "remove",
+        "update_step",
+    ]
+    assert "лише крок" in schema["properties"]["action"]["description"]
+    assert "явного запиту" in schema["properties"]["reason"]["description"]
+    assert "1-based" in schema["properties"]["step_number"]["description"]
+
+
+def test_recipe_editor_can_update_only_a_cooking_step() -> None:
+    message = invoke(
+        recipe_editor,
+        "edit-step-1",
+        action="update_step",
+        reason="Ви попросили додати цибулю до першого кроку.",
+        step_number=1,
+        step_text="Наріжте курку, картоплю, моркву та цибулю.",
+    )
+
+    assert message.artifact["status"] == "ok"
+    assert message.artifact["action"] == "update_step"
+    assert message.artifact["step_number"] == 1

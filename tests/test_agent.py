@@ -70,5 +70,7 @@ def test_prompt_requires_structured_confirmed_recipe_edits() -> None:
     assert "recipe_editor" in SYSTEM_PROMPT
     assert "явно просить змінити" in SYSTEM_PROMPT
     assert "коротку причину" in SYSTEM_PROMPT
+    assert "одному виклику recipe_editor" in SYSTEM_PROMPT
+    assert "Ви попросили" in SYSTEM_PROMPT
     assert "не повторюй весь рецепт" in SYSTEM_PROMPT
     assert "рецепт ще не змінено" in SYSTEM_PROMPT
