@@ -151,7 +151,7 @@ ul li::marker { color: var(--chef-accent); }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {
   width: 15.25rem;
   min-height: 4.3rem;
-  padding: 0 1rem;
+  padding: 0 0.75rem 0 1rem;
   background: #fff;
   color: var(--chef-text);
   border: 1px solid var(--chef-divider);
@@ -165,6 +165,34 @@ ul li::marker { color: var(--chef-accent); }
   font-weight: 500;
 }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] svg { fill: var(--chef-accent); }
+[data-testid="stMultiSelect"] [data-baseweb="tag"] > span[role="presentation"] {
+  display: inline-flex;
+  flex: 0 0 2rem;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  margin-left: 0.5rem;
+  border-radius: 999px;
+  background: #fbe8e4;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] > span[role="presentation"] svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  fill: var(--chef-accent);
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] > span[role="presentation"]:hover {
+  background: var(--chef-accent);
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"] > span[role="presentation"]:hover svg {
+  fill: #fff;
+}
+[data-testid="stMultiSelect"] [data-baseweb="tag"]:focus-visible {
+  outline: 3px solid rgb(228 71 51 / 25%);
+  outline-offset: 2px;
+}
 [data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"]) {
   flex: 1 1 17rem;
   position: relative;
@@ -213,6 +241,11 @@ ul li::marker { color: var(--chef-accent); }
   opacity: 1 !important;
 }
 hr { border-color: var(--chef-divider); }
+@media (min-width: 721px) {
+  .st-key-ingredient-search-button {
+    padding-bottom: 0.375rem;
+  }
+}
 @media (max-width: 720px) {
   .block-container { padding: 1rem 1rem 7rem; }
   h1 {
