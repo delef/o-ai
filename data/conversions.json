@@ -1,0 +1,92 @@
+[
+  {
+    "from_unit": "склянка",
+    "to_unit": "г",
+    "product": "борошно",
+    "factor": 150.0
+  },
+  {
+    "from_unit": "склянка",
+    "to_unit": "г",
+    "product": "цукор",
+    "factor": 200.0
+  },
+  {
+    "from_unit": "склянка",
+    "to_unit": "г",
+    "product": "рис",
+    "factor": 180.0
+  },
+  {
+    "from_unit": "склянка",
+    "to_unit": "г",
+    "product": "гречка",
+    "factor": 170.0
+  },
+  {
+    "from_unit": "склянка",
+    "to_unit": "г",
+    "product": "вівсянка",
+    "factor": 90.0
+  },
+  {
+    "from_unit": "склянка",
+    "to_unit": "мл",
+    "product": null,
+    "factor": 240.0
+  },
+  {
+    "from_unit": "ст.л.",
+    "to_unit": "мл",
+    "product": null,
+    "factor": 15.0
+  },
+  {
+    "from_unit": "ч.л.",
+    "to_unit": "мл",
+    "product": null,
+    "factor": 5.0
+  },
+  {
+    "from_unit": "ст.л.",
+    "to_unit": "г",
+    "product": "борошно",
+    "factor": 10.0
+  },
+  {
+    "from_unit": "ст.л.",
+    "to_unit": "г",
+    "product": "цукор",
+    "factor": 20.0
+  },
+  {
+    "from_unit": "ст.л.",
+    "to_unit": "г",
+    "product": "масло",
+    "factor": 15.0
+  },
+  {
+    "from_unit": "ст.л.",
+    "to_unit": "г",
+    "product": "олія",
+    "factor": 14.0
+  },
+  {
+    "from_unit": "ч.л.",
+    "to_unit": "г",
+    "product": "сіль",
+    "factor": 7.0
+  },
+  {
+    "from_unit": "ч.л.",
+    "to_unit": "г",
+    "product": "цукор",
+    "factor": 5.0
+  },
+  {
+    "from_unit": "ч.л.",
+    "to_unit": "г",
+    "product": "олія",
+    "factor": 5.0
+  }
+]
