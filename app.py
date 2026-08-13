@@ -51,9 +51,6 @@ h2 {
 }
 ul li::marker { color: var(--chef-accent); }
 [data-testid="stHeader"] { display: none; }
-[data-testid="stForm"] { border: 0; padding: 0; }
-div[data-testid="stForm"] { margin-top: 0.9rem; }
-div[data-testid="stFormSubmitButton"] button,
 .stButton button[kind="primary"] {
   background: var(--chef-accent);
   border-color: var(--chef-accent);
@@ -63,16 +60,25 @@ div[data-testid="stFormSubmitButton"] button,
   font-size: 1.05rem;
   font-weight: 700;
 }
-div[data-testid="stFormSubmitButton"] button p,
 .stButton button[kind="primary"] p {
   color: #fff !important;
   font-size: 1.25rem !important;
   font-weight: 700 !important;
 }
-div[data-testid="stFormSubmitButton"] button:hover,
 .stButton button[kind="primary"]:hover {
   background: var(--chef-accent-hover);
   border-color: var(--chef-accent-hover);
+}
+.stButton button:disabled,
+.stButton button:disabled:hover {
+  background: #eee6e0 !important;
+  border-color: #ded3cb !important;
+  color: #7a716b !important;
+  cursor: not-allowed;
+  opacity: 1 !important;
+}
+.stButton button:disabled p {
+  color: #7a716b !important;
 }
 .chef-header {
   display: flex;
@@ -131,6 +137,17 @@ div[data-testid="stFormSubmitButton"] button:hover,
   box-shadow: none;
   gap: 0.75rem;
 }
+[data-testid="stMultiSelect"] label {
+  color: var(--chef-text);
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 0.45rem;
+}
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div > div:first-child {
+  align-items: center;
+  flex: 1 1 auto;
+  width: 100%;
+}
 [data-testid="stMultiSelect"] [data-baseweb="tag"] {
   width: 15.25rem;
   min-height: 4.3rem;
@@ -149,7 +166,9 @@ div[data-testid="stFormSubmitButton"] button:hover,
 }
 [data-testid="stMultiSelect"] [data-baseweb="tag"] svg { fill: var(--chef-accent); }
 [data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"]) {
+  flex: 1 1 17rem;
   position: relative;
+  width: auto;
   min-width: 17rem;
   min-height: 4.3rem;
   padding: 0 1rem;
@@ -157,16 +176,9 @@ div[data-testid="stFormSubmitButton"] button:hover,
   border: 1px solid var(--chef-divider);
   border-radius: 0.65rem;
 }
-[data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"])::after {
-  content: "Додати продукт";
-  position: absolute;
-  inset: 1.3rem auto auto 1rem;
-  color: #948e89;
-  font-size: 1.05rem;
-  pointer-events: none;
-}
-[data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"]:focus)::after {
-  display: none;
+[data-testid="stMultiSelect"] input[role="combobox"]::placeholder {
+  color: var(--chef-muted);
+  opacity: 1;
 }
 [data-testid="stMultiSelect"] svg[title="Clear all"],
 [data-testid="stMultiSelect"] svg[title="open"] { display: none; }
@@ -244,6 +256,9 @@ hr { border-color: var(--chef-divider); }
   [data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"]) {
     width: 100% !important;
     min-width: 100%;
+  }
+  [data-testid="stMultiSelect"] [data-baseweb="select"] div:has(> input[role="combobox"]) {
+    flex: 0 0 auto !important;
   }
   [data-testid="stBottom"] > div {
     padding-left: 1rem !important;
@@ -384,26 +399,29 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    with st.form("ingredient-search", border=False):
-        ingredients_column, action_column = st.columns([4, 1], vertical_alignment="bottom")
-        with ingredients_column:
-            selected = st.multiselect(
-                "Продукти",
-                options=known_ingredients(),
-                default=st.session_state.ingredients,
-                placeholder="Додати продукт",
-                accept_new_options=True,
-                max_selections=12,
-                key="ingredient-picker",
-                label_visibility="collapsed",
-            )
-        with action_column:
-            submitted = st.form_submit_button(
-                "Знайти страву",
-                type="primary",
-                use_container_width=True,
-                disabled=not selected,
-            )
+    ingredients_column, action_column = st.columns([4, 1], vertical_alignment="bottom")
+    with ingredients_column:
+        selected = st.multiselect(
+            "Продукти",
+            options=known_ingredients(),
+            default=st.session_state.ingredients,
+            placeholder="Додати продукт",
+            accept_new_options=True,
+            max_selections=12,
+            key="ingredient-picker",
+            label_visibility="visible",
+        )
+    with action_column:
+        submitted = st.button(
+            "Знайти страву",
+            type="primary",
+            use_container_width=True,
+            disabled=not selected,
+            key="ingredient-search-button",
+        )
+
+    if not selected:
+        st.caption("Додайте хоча б один продукт.")
 
     if submitted:
         st.session_state.ingredients = selected
@@ -432,7 +450,8 @@ def main() -> None:
         with st.expander("Відповідь ChefBot"):
             st.write(st.session_state.last_answer)
 
-    with st.container():
+    follow_up = None
+    if st.session_state.current_recipe or st.session_state.last_answer:
         follow_up = st.chat_input(
             "Уточніть рецепт або запитайте про заміну…",
             key="chef-follow-up",

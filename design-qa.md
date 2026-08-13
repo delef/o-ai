@@ -2,89 +2,77 @@
 
 ## Evidence
 
-- Source visual truth: `docs/design/chefbot-ui-reference.png`
-- Final implementation: `docs/design/chefbot-ui-implementation-loaded.png`
-- Side-by-side comparison: `docs/design/chefbot-ui-comparison-loaded.png`
-- Initial state: `docs/design/chefbot-ui-implementation.png`
-- Missing-key state: `docs/design/chefbot-ui-error.png`
-- Responsive state: `docs/design/chefbot-ui-mobile.png`
-- Desktop viewport and CSS size: `1487 x 1058`
-- Mobile viewport and CSS size: `390 x 844`
-- Source pixels: `1487 x 1058`
-- Implementation pixels: `1487 x 1058`
-- Density normalization: both desktop captures used `deviceScaleFactor: 1`; no resampling was needed.
-- Compared state: successful ingredient-to-recipe result with `recipe_search` completed, recipe details visible, and follow-up input available.
+- Approved loaded-state reference: `docs/design/chefbot-ui-reference.png`
+- User-reported regression: `docs/design/chefbot-ui-empty-before.png`
+- Corrected empty state: `docs/design/chefbot-ui-empty-fixed.png`
+- Empty-state comparison: `docs/design/chefbot-ui-empty-comparison.png`
+- One-item transition: `docs/design/chefbot-ui-one-item-fixed.png`
+- Corrected mobile empty state: `docs/design/chefbot-ui-empty-mobile-fixed.png`
+- Corrected loaded state: `docs/design/chefbot-ui-implementation-loaded.png`
+- Loaded-state comparison: `docs/design/chefbot-ui-comparison-loaded.png`
+- Empty desktop viewport: `1462 x 647` CSS pixels at `deviceScaleFactor: 2`
+  (`2924 x 1294` screenshot pixels), exactly matching the regression capture.
+- Loaded desktop viewport: `1487 x 1058` at `deviceScaleFactor: 1`, exactly
+  matching the approved reference.
+- Mobile viewport: `390 x 844` at `deviceScaleFactor: 1`.
 
-The source and implementation were opened together in the same `2974 x 1058`
-side-by-side image. A separate focused crop was not needed because the original-size
-comparison keeps the logo, form controls, tool status, metadata, recipe columns, and
-follow-up control legible.
+Both desktop comparisons place the source and current implementation together at
+identical viewport, state, and density. The regression screenshot is defect evidence,
+not an intended visual target.
 
-## Findings
+## Findings resolved
+
+- [P1] The add-product placeholder appeared twice because CSS generated a second copy.
+  The synthetic `::after` content is gone; the browser reports one visible placeholder
+  and pseudo-element content `none`.
+- [P1] Clearing the last ingredient left the CTA actually enabled because `st.form`
+  batched the multiselect change until submission. The picker and button now rerun
+  independently, so the CTA immediately becomes disabled and visually neutral.
+- [P1] The empty input occupied only `381 px` while the CTA sat on the far edge of the
+  screen. The input now fills its column (`1045 px`) with a `37 px` gap to the `262 px`
+  CTA at the regression viewport.
+- [P2] The follow-up control appeared before there was recipe or conversation context.
+  It is now hidden in the initial and empty states.
+- [P2] The first flex correction briefly let the input wrapper overlap ingredient tags.
+  Keeping the wrapper `position: relative` preserves normal layout and click targets.
+- [P2] The desktop flex basis initially made the empty mobile input `272 px` tall. The
+  mobile rule resets that basis; the final input is `69 px` high with no horizontal
+  overflow.
+- [P2] A nested `st.container()` moved the loaded-state follow-up input into page flow
+  and below the viewport. It is now a direct `st.chat_input`, restored to Streamlit's
+  sticky bottom container at `y=930`, fully visible within the `1058 px` viewport.
 
 No actionable P0, P1, or P2 visual mismatch remains.
 
-- Typography: the system sans-serif stack, weights, line height, and tightened display
-  tracking reproduce the source hierarchy. The recipe heading was raised to the same
-  visual tier as the source.
-- Spacing and layout: the desktop header, hero, ingredient row, action, dividers,
-  recipe columns, and fixed follow-up control follow the source rhythm. At `390 px`,
-  the form becomes a single readable column with no clipping or horizontal overflow.
-- Colors and tokens: warm `#FBF8F4` background, `#252321` foreground, `#E44733`
-  primary action, green success state, and warm neutral dividers match the approved
-  direction.
-- Image and icon fidelity: the screen has no photographic or illustrative assets.
-  Visible symbols use Streamlit's Material Symbols icon library; no emoji, placeholder
-  art, handcrafted SVG, or CSS illustration replaces a source asset.
-- Copy and content: Ukrainian interface copy matches the approved screen. Recipe values
-  are rendered from the local verified data rather than copied from the mockup.
-- Affordances: ingredient removal, add-product input, primary search action, tool
-  completion, recipe result, and follow-up input are visibly distinct.
-
-## Intentional differences and follow-up polish
-
-- [P3] The mockup includes inventory quantities inside the three input chips, while the
-  current product asks only which ingredients are available. Inventing quantities would
-  make the interface claim data the user never provided, so the implementation keeps
-  ingredient names only.
-- [P3] The mockup illustrates four ingredients and four preparation steps. The verified
-  `chicken-potatoes` record contains six ingredients and three steps; the implementation
-  intentionally displays that grounded source of truth.
-- [P3] The chef mark uses the closest Material Symbols icon instead of the exact mockup
-  outline. No standalone source logo asset was supplied.
-
-## Comparison history
-
-1. Initial comparison found a P2 responsive defect: Streamlit's multiselect clipped the
-   third ingredient and add-product field on a narrow viewport. The mobile flex layout,
-   tag sizing, overflow behavior, and trailing control were corrected. Post-fix evidence:
-   `docs/design/chefbot-ui-mobile.png`; browser measurement was `390 px` client width,
-   `390 px` scroll width, three `351 px` ingredient cards, and no overflow elements.
-2. The first loaded-state comparison found P2 hierarchy drift: the recipe title was too
-   small and a redundant collapsed assistant answer displaced the follow-up control.
-   Recipe typography and metadata were aligned with the source, and the duplicate answer
-   is now suppressed for the initial structured result. Post-fix evidence:
-   `docs/design/chefbot-ui-comparison-loaded.png`.
-3. The initial success status lacked the source's visual confirmation. It now uses the
-   Material Symbols `check_circle` icon with the semantic success color. Post-fix evidence:
-   `docs/design/chefbot-ui-implementation-loaded.png`.
-
 ## Functional browser checks
 
-- Initial desktop state loaded with the expected title and three selected ingredients.
-- Clicking `Знайти страву` without a key displayed the explicit `OPENAI_API_KEY` setup
-  error and preserved all three selections.
-- The grounded preview rendered `Курка з картоплею`, the real `recipe_search` tool event,
-  and the follow-up input.
-- Desktop and mobile layouts had no horizontal overflow.
-- Final run reported zero unexpected console errors and zero page errors.
+- Deleted all three initial tags one at a time and observed a rerender after each.
+- Empty state contained exactly one placeholder, a disabled CTA, the requirement hint,
+  and no chat input.
+- Typed and selected `рис`; one ingredient appeared, the CTA enabled, and the empty hint
+  disappeared.
+- Mobile empty state had `390 px` client and scroll widths and a normal-height input.
+- Loaded state retained three ingredients, an enabled CTA, grounded recipe content, and
+  a fully visible sticky follow-up control.
+- Browser QA reported zero console errors and zero page errors in both flows.
+
+## Intentional P3 differences
+
+- The approved mockup shows quantities inside the selected-product chips. The product
+  does not collect inventory quantities, so the implementation shows ingredient names
+  only rather than inventing user data.
+- The loaded preview renders the verified local recipe record, so its ingredients and
+  steps can differ from illustrative mockup copy.
+- The chef mark uses the closest Material Symbols icon because no standalone logo asset
+  was supplied.
 
 ## Implementation checklist
 
-- [x] Desktop success state compared at identical viewport and density.
-- [x] Initial, missing-key, success, and responsive states captured.
-- [x] Primary search and error-preservation interaction exercised.
-- [x] Required typography, spacing, color, asset, copy, and responsive surfaces reviewed.
-- [x] Earlier P2 findings fixed and re-captured.
+- [x] Empty desktop state compared at identical viewport, density, and state.
+- [x] Loaded desktop state compared at identical viewport, density, and state.
+- [x] Empty, one-item, loaded, and mobile interactions exercised.
+- [x] Disabled, enabled, hidden-context, and sticky follow-up states measured in-browser.
+- [x] Typography, spacing, colors, affordances, copy, and responsive behavior reviewed.
+- [x] All P1/P2 findings fixed and recaptured.
 
 final result: passed
