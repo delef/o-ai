@@ -12,6 +12,9 @@ from chefbot.services import (
 )
 
 
+RECIPE_EDIT_ACTIONS = {"add", "replace", "remove", "update_step"}
+
+
 def _recipe_content(matches: list[dict[str, Any]]) -> str:
     if not matches:
         return "У локальній базі не знайдено відповідного рецепта. Змініть страву, продукти або категорію пошуку."
@@ -87,5 +90,70 @@ def substitution_finder(ingredient: str) -> tuple[str, dict[str, Any]]:
     return "\n".join(lines), artifact
 
 
+@tool(response_format="content_and_artifact")
+def recipe_editor(
+    action: str,
+    reason: str,
+    ingredient: str = "",
+    replacement: str = "",
+    quantity: float = 0,
+    unit: str = "",
+    note: str = "",
+    step_number: int = 0,
+    step_text: str = "",
+) -> tuple[str, dict[str, Any]]:
+    """Зафіксуй підтверджену зміну поточного рецепта і коротку причину для користувача."""
+    normalized_action = action.strip().casefold()
+    clean_ingredient = ingredient.strip()
+    clean_replacement = replacement.strip()
+    clean_reason = reason.strip()
+    clean_step = step_text.strip()
+    artifact = {
+        "kind": "recipe_editor",
+        "status": "ok",
+        "action": normalized_action,
+        "ingredient": clean_ingredient,
+        "replacement": clean_replacement,
+        "quantity": quantity if quantity > 0 else None,
+        "unit": unit.strip() or None,
+        "note": note.strip() or None,
+        "step_number": step_number,
+        "step_text": clean_step,
+        "reason": clean_reason,
+    }
+
+    invalid_reason = ""
+    if normalized_action not in RECIPE_EDIT_ACTIONS:
+        invalid_reason = "Непідтримувана дія для рецепта."
+    elif not clean_reason:
+        invalid_reason = "Потрібно вказати коротку причину зміни."
+    elif normalized_action in {"add", "replace", "remove"} and not clean_ingredient:
+        invalid_reason = "Потрібно вказати інгредієнт."
+    elif normalized_action == "replace" and not clean_replacement:
+        invalid_reason = "Для заміни потрібно вказати новий інгредієнт."
+    elif quantity < 0:
+        invalid_reason = "Кількість не може бути від'ємною."
+    elif quantity > 0 and not artifact["unit"]:
+        invalid_reason = "Для точної кількості потрібно вказати одиницю."
+    elif (step_number > 0) != bool(clean_step):
+        invalid_reason = "Номер і новий текст кроку потрібно передати разом."
+    elif normalized_action == "update_step" and step_number <= 0:
+        invalid_reason = "Для зміни приготування потрібно вказати крок."
+
+    if invalid_reason:
+        artifact["status"] = "invalid"
+        return invalid_reason, artifact
+
+    if normalized_action == "add":
+        content = f"До рецепта додано «{clean_ingredient}»."
+    elif normalized_action == "replace":
+        content = f"У рецепті «{clean_ingredient}» замінено на «{clean_replacement}»."
+    elif normalized_action == "remove":
+        content = f"З рецепта видалено «{clean_ingredient}»."
+    else:
+        content = f"Оновлено крок {step_number} рецепта."
+    return content, artifact
+
+
 def get_tools() -> list[Any]:
-    return [recipe_search, unit_converter, substitution_finder]
+    return [recipe_search, unit_converter, substitution_finder, recipe_editor]

@@ -66,7 +66,9 @@ def test_run_does_not_count_usage_from_prior_history() -> None:
     assert result.usage.total_tokens == 250
 
 
-def test_prompt_requires_a_canonical_follow_up_update() -> None:
-    assert "Оновлення до рецепта" in SYSTEM_PROMPT
-    assert "попередні підтверджені зміни" in SYSTEM_PROMPT
+def test_prompt_requires_structured_confirmed_recipe_edits() -> None:
+    assert "recipe_editor" in SYSTEM_PROMPT
+    assert "явно просить змінити" in SYSTEM_PROMPT
+    assert "коротку причину" in SYSTEM_PROMPT
+    assert "не повторюй весь рецепт" in SYSTEM_PROMPT
     assert "рецепт ще не змінено" in SYSTEM_PROMPT

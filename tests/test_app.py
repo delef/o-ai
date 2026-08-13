@@ -1,9 +1,9 @@
 import re
 
-from langchain.messages import AIMessage
+from langchain.messages import AIMessage, ToolMessage
 from streamlit.testing.v1 import AppTest
 
-from app import PAGE_STYLE, get_api_key, latest_recipe
+from app import PAGE_STYLE, apply_recipe_edits, get_api_key, latest_recipe
 from chefbot.agent import ToolEvent
 
 
@@ -12,7 +12,43 @@ class FakeFollowUpAgent:
         return {
             "messages": [
                 *state["messages"],
-                AIMessage(content="Оновлення до рецепта: замініть куряче філе на філе індички."),
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "recipe_editor",
+                            "args": {
+                                "action": "replace",
+                                "ingredient": "куряче філе",
+                                "replacement": "філе індички",
+                                "reason": "Ви попросили замінити курятину на індичку.",
+                                "step_number": 1,
+                                "step_text": "Наріжте індичку, картоплю та моркву.",
+                            },
+                            "id": "edit-1",
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(
+                    content="Рецепт оновлено.",
+                    tool_call_id="edit-1",
+                    name="recipe_editor",
+                    artifact={
+                        "kind": "recipe_editor",
+                        "status": "ok",
+                        "action": "replace",
+                        "ingredient": "куряче філе",
+                        "replacement": "філе індички",
+                        "quantity": None,
+                        "unit": None,
+                        "note": None,
+                        "step_number": 1,
+                        "step_text": "Наріжте індичку, картоплю та моркву.",
+                        "reason": "Ви попросили замінити курятину на індичку.",
+                    },
+                ),
+                AIMessage(content="Готово — рецепт оновлено вище."),
             ]
         }
 
@@ -135,7 +171,113 @@ def test_follow_up_is_hidden_until_conversation_context_exists(monkeypatch) -> N
     assert not app.chat_input
 
 
-def test_discussion_transcript_and_recipe_update_are_visible(monkeypatch) -> None:
+def test_recipe_edits_update_the_whole_recipe_and_describe_latest_changes() -> None:
+    recipe = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+            {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+        ],
+        "steps": ["Наріжте курку та картоплю.", "Запікайте 45 хвилин."],
+    }
+    events = [
+        ToolEvent(
+            name="recipe_editor",
+            status="ok",
+            content="Рецепт оновлено.",
+            artifact={
+                "kind": "recipe_editor",
+                "status": "ok",
+                "action": "replace",
+                "ingredient": "куряче філе",
+                "replacement": "філе індички",
+                "quantity": None,
+                "unit": None,
+                "note": None,
+                "step_number": 1,
+                "step_text": "Наріжте індичку та картоплю.",
+                "reason": "Ви попросили замінити курятину на індичку.",
+            },
+        )
+    ]
+
+    updated, changes = apply_recipe_edits(recipe, events)
+
+    assert updated["ingredients"][0] == {
+        "name": "філе індички",
+        "quantity": 500,
+        "unit": "г",
+        "note": None,
+    }
+    assert updated["steps"][0] == "Наріжте індичку та картоплю."
+    assert changes == {
+        "ingredients": [
+            {
+                "name": "філе індички",
+                "reason": "Ви попросили замінити курятину на індичку.",
+            }
+        ],
+        "steps": [
+            {
+                "index": 0,
+                "reason": "Ви попросили замінити курятину на індичку.",
+            }
+        ],
+        "removed_ingredients": [],
+    }
+
+
+def test_recipe_edit_can_add_an_ingredient_without_inventing_quantity() -> None:
+    recipe = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [],
+        "steps": ["Наріжте курку, картоплю та моркву."],
+    }
+    events = [
+        ToolEvent(
+            name="recipe_editor",
+            status="ok",
+            content="До рецепта додано «цибуля».",
+            artifact={
+                "kind": "recipe_editor",
+                "status": "ok",
+                "action": "add",
+                "ingredient": "цибуля",
+                "replacement": "",
+                "quantity": None,
+                "unit": None,
+                "note": None,
+                "step_number": 1,
+                "step_text": "Наріжте курку, картоплю, моркву та цибулю.",
+                "reason": "Ви попросили додати цибулю.",
+            },
+        )
+    ]
+
+    updated, changes = apply_recipe_edits(recipe, events)
+
+    assert updated["ingredients"][-1] == {
+        "name": "цибуля",
+        "quantity": None,
+        "unit": None,
+        "note": None,
+    }
+    assert updated["steps"][0] == "Наріжте курку, картоплю, моркву та цибулю."
+    assert changes["ingredients"] == [
+        {"name": "цибуля", "reason": "Ви попросили додати цибулю."}
+    ]
+    assert changes["steps"] == [
+        {"index": 0, "reason": "Ви попросили додати цибулю."}
+    ]
+
+
+def test_discussion_transcript_and_inline_recipe_change_are_visible(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     app = AppTest.from_file("app.py").run(timeout=10)
     app.session_state["current_recipe"] = {
@@ -143,27 +285,41 @@ def test_discussion_transcript_and_recipe_update_are_visible(monkeypatch) -> Non
         "name": "курка з картоплею",
         "time_minutes": 55,
         "servings": 4,
-        "ingredients": [],
-        "steps": [],
+        "ingredients": [
+            {"name": "філе індички", "quantity": 500, "unit": "г", "note": None}
+        ],
+        "steps": ["Наріжте індичку, картоплю та моркву."],
     }
     app.session_state["chat_history"] = [
         {"role": "user", "content": "Чим замінити куряче філе?"},
         {"role": "assistant", "content": "Можна використати філе індички."},
     ]
-    app.session_state["recipe_updates"] = [
-        "Попереднє уточнення.",
-        "Можна використати філе індички.",
-    ]
+    app.session_state["recipe_changes"] = {
+        "ingredients": [
+            {
+                "name": "філе індички",
+                "reason": "Ви попросили замінити курятину на індичку.",
+            }
+        ],
+        "steps": [],
+        "removed_ingredients": [],
+    }
     app.run(timeout=10)
 
     assert [message.name for message in app.chat_message] == ["user", "assistant"]
     assert app.chat_message[0].markdown[0].value == "Чим замінити куряче філе?"
     assert app.chat_message[1].markdown[0].value == "Можна використати філе індички."
+    assert not any("Оновлення після обговорення" in element.value for element in app.info)
+    changed_rows = [
+        element.value
+        for element in app.markdown
+        if "chef-recipe-row--changed" in element.value
+    ]
+    assert any("філе індички — 500 г" in row for row in changed_rows)
     assert any(
-        "Оновлення після обговорення" in element.value
-        and "Можна використати філе індички." in element.value
-        and "Попереднє уточнення." not in element.value
-        for element in app.info
+        'data-reason="Ви попросили замінити курятину на індичку."' in row
+        and 'tabindex="0"' in row
+        for row in changed_rows
     )
 
 
@@ -186,7 +342,11 @@ def test_follow_up_submission_preserves_user_message_when_api_is_unavailable(mon
     assert app.chat_message[0].markdown[0].value == "Заміни куряче філе"
     assert "OPENAI_API_KEY" in app.chat_message[1].markdown[0].value
     assert app.session_state["current_recipe"]["id"] == "chicken-potatoes"
-    assert app.session_state["recipe_updates"] == []
+    assert app.session_state["recipe_changes"] == {
+        "ingredients": [],
+        "steps": [],
+        "removed_ingredients": [],
+    }
 
 
 def test_successful_follow_up_updates_transcript_and_canonical_result(monkeypatch) -> None:
@@ -198,19 +358,46 @@ def test_successful_follow_up_updates_transcript_and_canonical_result(monkeypatc
         "name": "курка з картоплею",
         "time_minutes": 55,
         "servings": 4,
-        "ingredients": [],
-        "steps": [],
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+            {"name": "картопля", "quantity": 700, "unit": "г", "note": None},
+        ],
+        "steps": ["Наріжте курку, картоплю та моркву.", "Запікайте 45 хвилин."],
     }
     app.run(timeout=10)
 
     app.chat_input[0].set_value("Заміни куряче філе на індичку").run(timeout=10)
 
-    answer = "Оновлення до рецепта: замініть куряче філе на філе індички."
+    answer = "Готово — рецепт оновлено вище."
     assert [message.name for message in app.chat_message] == ["user", "assistant"]
     assert app.chat_message[0].markdown[0].value == "Заміни куряче філе на індичку"
     assert app.chat_message[1].markdown[0].value == answer
-    assert app.session_state["recipe_updates"] == [answer]
-    assert any(answer in element.value for element in app.info)
+    assert app.session_state["current_recipe"]["ingredients"][0]["name"] == "філе індички"
+    assert app.session_state["current_recipe"]["steps"][0] == "Наріжте індичку, картоплю та моркву."
+    assert app.session_state["recipe_changes"]["ingredients"] == [
+        {
+            "name": "філе індички",
+            "reason": "Ви попросили замінити курятину на індичку.",
+        }
+    ]
+    assert not any(answer in element.value for element in app.info)
+
+
+def test_inline_change_styles_support_hover_and_keyboard_explanations() -> None:
+    assert ".chef-recipe-row--changed:hover::after" in PAGE_STYLE
+    assert ".chef-recipe-row--changed:focus-visible::after" in PAGE_STYLE
+    assert "content: attr(data-reason)" in PAGE_STYLE
+    assert ".st-key-recipe-result-updated" in PAGE_STYLE
+
+
+def test_recipe_columns_stack_explicitly_on_mobile() -> None:
+    mobile_styles = PAGE_STYLE.split("@media (max-width: 720px)", 1)[1]
+    assert '.st-key-recipe-result-updated [data-testid="stHorizontalBlock"]' in mobile_styles
+    assert "flex-direction: column !important" in mobile_styles
+    assert '.st-key-recipe-result-updated [data-testid="stColumn"]' in mobile_styles
+    assert "width: 100% !important" in mobile_styles
+    assert ".chef-recipe-row--changed::after" in mobile_styles
+    assert "max-width: 100%" in mobile_styles
 
 
 def test_styles_use_native_placeholder_only() -> None:

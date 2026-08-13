@@ -1,6 +1,6 @@
 from langchain.messages import ToolMessage
 
-from chefbot.tools import recipe_search, substitution_finder, unit_converter
+from chefbot.tools import recipe_editor, recipe_search, substitution_finder, unit_converter
 
 
 def invoke(tool, call_id: str, **args):
@@ -46,3 +46,43 @@ def test_substitution_tool_reports_missing_data_without_invention() -> None:
         "options": [],
     }
     assert "не знайдено" in message.content
+
+
+def test_recipe_editor_returns_a_structured_replace_patch_with_reason() -> None:
+    message = invoke(
+        recipe_editor,
+        "edit-1",
+        action="replace",
+        ingredient="куряче філе",
+        replacement="філе індички",
+        reason="Ви попросили замінити курятину на індичку.",
+        step_number=1,
+        step_text="Наріжте індичку, картоплю та моркву.",
+    )
+
+    assert message.artifact == {
+        "kind": "recipe_editor",
+        "status": "ok",
+        "action": "replace",
+        "ingredient": "куряче філе",
+        "replacement": "філе індички",
+        "quantity": None,
+        "unit": None,
+        "note": None,
+        "step_number": 1,
+        "step_text": "Наріжте індичку, картоплю та моркву.",
+        "reason": "Ви попросили замінити курятину на індичку.",
+    }
+
+
+def test_recipe_editor_rejects_an_update_without_a_reason() -> None:
+    message = invoke(
+        recipe_editor,
+        "edit-2",
+        action="add",
+        ingredient="цибуля",
+        reason="",
+    )
+
+    assert message.artifact["status"] == "invalid"
+    assert "причину" in message.content

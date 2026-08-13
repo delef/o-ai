@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import copy
 import logging
 import os
 from collections.abc import Mapping
+from html import escape
 from typing import Any
 
 import streamlit as st
 from langchain.messages import HumanMessage
 
 from chefbot import MissingAPIKeyError, ToolEvent, create_chefbot, run_chefbot
-from chefbot.services import format_ingredient, known_ingredients
+from chefbot.services import format_ingredient, known_ingredients, normalize_text
 
 
 LOGGER = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ PAGE_STYLE = """
   --chef-accent-hover: #ca3828;
   --chef-success: #3b9b58;
   --chef-divider: #e5ddd6;
+  --chef-change-bg: #fff0eb;
+  --chef-change-border: #f0a396;
 }
 
 .stApp {
@@ -128,6 +132,105 @@ ul li::marker { color: var(--chef-accent); }
   font-family: "Material Symbols Rounded";
   font-size: 1.5rem;
   font-weight: 400;
+}
+.st-key-recipe-result,
+.st-key-recipe-result-updated {
+  margin-top: 1.25rem;
+}
+.st-key-recipe-result-updated {
+  padding: 1.25rem 1.4rem 1.4rem;
+  border: 1px solid var(--chef-change-border);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 60%);
+  box-shadow: 0 0.5rem 1.5rem rgb(83 47 38 / 6%);
+}
+.chef-recipe-update-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  width: fit-content;
+  margin-bottom: 0.45rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 999px;
+  background: var(--chef-change-bg);
+  color: #8f3024;
+  font-size: 0.88rem;
+  font-weight: 750;
+}
+.chef-recipe-update-status span:last-child {
+  color: var(--chef-muted);
+  font-weight: 500;
+}
+.chef-recipe-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-height: 2.2rem;
+  margin: 0 -0.65rem 0.25rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.65rem;
+  line-height: 1.45;
+}
+.chef-recipe-marker {
+  flex: 0 0 auto;
+  color: var(--chef-accent);
+  font-weight: 800;
+}
+.chef-recipe-row-text { flex: 1 1 auto; min-width: 0; }
+.chef-recipe-step-number { font-weight: 750; }
+.chef-recipe-change-badge {
+  flex: 0 0 auto;
+  margin-top: 0.05rem;
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  background: #fff;
+  color: #a23b2e;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+.chef-recipe-row--changed {
+  border-color: var(--chef-change-border);
+  background: var(--chef-change-bg);
+  cursor: help;
+}
+.chef-recipe-row--removed .chef-recipe-row-text {
+  color: var(--chef-muted);
+  text-decoration: line-through;
+}
+.chef-recipe-row--changed::after {
+  content: attr(data-reason);
+  box-sizing: border-box;
+  position: absolute;
+  left: 0.4rem;
+  top: calc(100% + 0.35rem);
+  z-index: 20;
+  width: max-content;
+  max-width: min(24rem, calc(100vw - 3rem));
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  background: #2f2a27;
+  color: #fff;
+  box-shadow: 0 0.6rem 1.5rem rgb(37 35 33 / 20%);
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-0.2rem);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.chef-recipe-row--changed:hover::after,
+.chef-recipe-row--changed:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+.chef-recipe-row--changed:focus-visible {
+  outline: 3px solid rgb(228 71 51 / 24%);
+  outline-offset: 2px;
 }
 .st-key-ingredient-search {
   margin: 1.25rem 0 1.5rem;
@@ -291,6 +394,29 @@ hr { border-color: var(--chef-divider); }
     font-size: 0.95rem;
   }
   .chef-meta { gap: 1.5rem; }
+  .st-key-recipe-result-updated {
+    padding: 1rem;
+  }
+  .chef-recipe-update-status span:last-child {
+    flex-basis: 100%;
+  }
+  .chef-recipe-change-badge {
+    align-self: center;
+  }
+  .chef-recipe-row--changed::after {
+    left: 0;
+    max-width: 100%;
+  }
+  .st-key-recipe-result [data-testid="stHorizontalBlock"],
+  .st-key-recipe-result-updated [data-testid="stHorizontalBlock"] {
+    flex-direction: column !important;
+    gap: 1rem !important;
+  }
+  .st-key-recipe-result [data-testid="stColumn"],
+  .st-key-recipe-result-updated [data-testid="stColumn"] {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+  }
   .st-key-ingredient-search {
     margin-top: 1rem;
     padding: 0.8rem;
@@ -375,6 +501,118 @@ def latest_recipe(events: list[ToolEvent]) -> dict[str, Any] | None:
     return None
 
 
+def empty_recipe_changes() -> dict[str, list[dict[str, Any]]]:
+    return {
+        "ingredients": [],
+        "steps": [],
+        "removed_ingredients": [],
+    }
+
+
+def _remember_change(
+    changes: dict[str, list[dict[str, Any]]],
+    group: str,
+    identity: str | int,
+    reason: str,
+) -> None:
+    identity_key = "index" if group == "steps" else "name"
+    changes[group] = [
+        item for item in changes[group] if item.get(identity_key) != identity
+    ]
+    changes[group].append({identity_key: identity, "reason": reason})
+
+
+def apply_recipe_edits(
+    recipe: dict[str, Any],
+    events: list[ToolEvent],
+) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
+    """Apply verified recipe_editor patches and describe only this turn's changes."""
+    updated = copy.deepcopy(recipe)
+    changes = empty_recipe_changes()
+
+    for event in events:
+        if event.name != "recipe_editor" or event.status != "ok":
+            continue
+        edit = event.artifact
+        action = str(edit.get("action", ""))
+        ingredient_name = str(edit.get("ingredient", "")).strip()
+        replacement = str(edit.get("replacement", "")).strip()
+        reason = str(edit.get("reason", "")).strip()
+        if not reason:
+            continue
+
+        ingredient_applied = action == "update_step"
+        ingredient_index = next(
+            (
+                index
+                for index, item in enumerate(updated.get("ingredients", []))
+                if normalize_text(str(item.get("name", "")))
+                == normalize_text(ingredient_name)
+            ),
+            None,
+        )
+
+        if action == "add" and ingredient_name:
+            if ingredient_index is None:
+                updated["ingredients"].append(
+                    {
+                        "name": ingredient_name,
+                        "quantity": edit.get("quantity"),
+                        "unit": edit.get("unit"),
+                        "note": edit.get("note"),
+                    }
+                )
+            else:
+                existing = updated["ingredients"][ingredient_index]
+                if edit.get("quantity") is not None:
+                    existing["quantity"] = edit["quantity"]
+                    existing["unit"] = edit.get("unit")
+                if edit.get("note") is not None:
+                    existing["note"] = edit["note"]
+            _remember_change(changes, "ingredients", ingredient_name, reason)
+            ingredient_applied = True
+
+        elif action == "replace" and ingredient_index is not None and replacement:
+            existing = updated["ingredients"][ingredient_index]
+            existing["name"] = replacement
+            if edit.get("quantity") is not None:
+                existing["quantity"] = edit["quantity"]
+                existing["unit"] = edit.get("unit")
+            if edit.get("note") is not None:
+                existing["note"] = edit["note"]
+            _remember_change(changes, "ingredients", replacement, reason)
+            ingredient_applied = True
+
+        elif action == "remove" and ingredient_index is not None:
+            removed = updated["ingredients"].pop(ingredient_index)
+            _remember_change(
+                changes,
+                "removed_ingredients",
+                str(removed["name"]),
+                reason,
+            )
+            ingredient_applied = True
+
+        if not ingredient_applied:
+            continue
+        step_number = edit.get("step_number")
+        step_text = str(edit.get("step_text", "")).strip()
+        if (
+            isinstance(step_number, int)
+            and 1 <= step_number <= len(updated.get("steps", []))
+            and step_text
+        ):
+            step_index = step_number - 1
+            updated["steps"][step_index] = step_text
+            _remember_change(changes, "steps", step_index, reason)
+
+    return updated, changes
+
+
+def _has_recipe_changes(changes: dict[str, list[dict[str, Any]]]) -> bool:
+    return any(changes.values())
+
+
 def _streamlit_secrets() -> Mapping[str, Any]:
     try:
         api_key = st.secrets.get("OPENAI_API_KEY")
@@ -395,7 +633,7 @@ def _init_state() -> None:
         "last_answer": "",
         "error": "",
         "chat_history": [],
-        "recipe_updates": [],
+        "recipe_changes": empty_recipe_changes(),
         "pending_follow_up": None,
         "follow_up_phase": "idle",
     }
@@ -411,7 +649,7 @@ def _clear_search_result() -> None:
     st.session_state.last_answer = ""
     st.session_state.error = ""
     st.session_state.chat_history = []
-    st.session_state.recipe_updates = []
+    st.session_state.recipe_changes = empty_recipe_changes()
     st.session_state.pending_follow_up = None
     st.session_state.follow_up_phase = "idle"
 
@@ -456,6 +694,15 @@ def _perform_query(query: str, api_key: str, reset: bool) -> bool:
     st.session_state.error = ""
     if recipe is not None:
         st.session_state.current_recipe = recipe
+        st.session_state.recipe_changes = empty_recipe_changes()
+    elif not reset and st.session_state.current_recipe:
+        updated_recipe, changes = apply_recipe_edits(
+            st.session_state.current_recipe,
+            result.tool_events,
+        )
+        if _has_recipe_changes(changes):
+            st.session_state.current_recipe = updated_recipe
+            st.session_state.recipe_changes = changes
     elif reset:
         st.session_state.current_recipe = None
     return True
@@ -519,8 +766,6 @@ def _run_pending_follow_up() -> None:
             *st.session_state.chat_history,
             {"role": "assistant", "content": answer},
         ]
-        if st.session_state.current_recipe:
-            st.session_state.recipe_updates = [answer]
         st.session_state.follow_up_phase = "complete"
     else:
         message = st.session_state.error or "ChefBot не зміг оновити рецепт."
@@ -534,6 +779,8 @@ def _run_pending_follow_up() -> None:
 
 def _render_tool_events(events: list[ToolEvent]) -> None:
     for event in events:
+        if event.name == "recipe_editor":
+            continue
         if event.status == "ok":
             st.markdown(
                 '<div class="chef-tool">'
@@ -547,7 +794,64 @@ def _render_tool_events(events: list[ToolEvent]) -> None:
             st.error(f"{event.name}: інструмент тимчасово недоступний.")
 
 
-def _render_recipe(recipe: dict[str, Any], updates: list[str] | None = None) -> None:
+def _change_reason(
+    changes: dict[str, list[dict[str, Any]]],
+    group: str,
+    identity: str | int,
+) -> str:
+    identity_key = "index" if group == "steps" else "name"
+    for item in changes.get(group, []):
+        candidate = item.get(identity_key)
+        if group == "steps" and candidate == identity:
+            return str(item.get("reason", ""))
+        if group != "steps" and normalize_text(str(candidate)) == normalize_text(str(identity)):
+            return str(item.get("reason", ""))
+    return ""
+
+
+def _render_recipe_row(
+    text: str,
+    reason: str = "",
+    *,
+    marker: str = "•",
+    removed: bool = False,
+) -> None:
+    classes = ["chef-recipe-row"]
+    attributes = ""
+    badge = ""
+    if reason:
+        classes.append("chef-recipe-row--changed")
+        if removed:
+            classes.append("chef-recipe-row--removed")
+        safe_reason = escape(reason, quote=True)
+        safe_label = escape(f"{text}. Причина зміни: {reason}", quote=True)
+        attributes = (
+            f' tabindex="0" data-reason="{safe_reason}" aria-label="{safe_label}"'
+        )
+        badge_text = "Видалено" if removed else "Оновлено"
+        badge = f'<span class="chef-recipe-change-badge">{badge_text}</span>'
+    st.markdown(
+        f'<div class="{" ".join(classes)}"{attributes}>'
+        f'<span class="chef-recipe-marker" aria-hidden="true">{escape(marker)}</span>'
+        f'<span class="chef-recipe-row-text">{escape(text)}</span>'
+        f"{badge}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_recipe(
+    recipe: dict[str, Any],
+    changes: dict[str, list[dict[str, Any]]] | None = None,
+) -> None:
+    changes = changes or empty_recipe_changes()
+    if _has_recipe_changes(changes):
+        st.markdown(
+            '<div class="chef-recipe-update-status">'
+            '<span>Рецепт оновлено</span>'
+            '<span>Наведіть або сфокусуйте підсвічений рядок, щоб побачити причину.</span>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
     st.header(recipe["name"].capitalize())
     st.markdown(
         '<div class="chef-meta">'
@@ -557,23 +861,33 @@ def _render_recipe(recipe: dict[str, Any], updates: list[str] | None = None) -> 
         f"{recipe['servings']} порції</span></div>",
         unsafe_allow_html=True,
     )
-    if updates:
-        st.info(
-            f"**Оновлення після обговорення**\n\n{updates[-1]}",
-            icon=":material/edit_note:",
-        )
     st.divider()
 
     ingredients_column, steps_column = st.columns([2, 3], gap="large")
     with ingredients_column:
         st.subheader("Інгредієнти")
         for ingredient in recipe["ingredients"]:
-            st.markdown(f"- {format_ingredient(ingredient)}")
+            _render_recipe_row(
+                format_ingredient(ingredient),
+                _change_reason(changes, "ingredients", ingredient["name"]),
+            )
+        for removed in changes.get("removed_ingredients", []):
+            removed_name = str(removed.get("name", ""))
+            _render_recipe_row(
+                removed_name,
+                str(removed.get("reason", "")),
+                marker="−",
+                removed=True,
+            )
 
     with steps_column:
         st.subheader("Приготування")
         for index, step in enumerate(recipe["steps"], 1):
-            st.markdown(f"**{index}.** {step}")
+            _render_recipe_row(
+                f"{index}. {step}",
+                _change_reason(changes, "steps", index - 1),
+                marker="",
+            )
 
 
 def _render_discussion() -> None:
@@ -664,10 +978,14 @@ def main() -> None:
 
     _render_tool_events(st.session_state.last_events)
     if st.session_state.current_recipe:
-        _render_recipe(
-            st.session_state.current_recipe,
-            updates=st.session_state.recipe_updates,
+        recipe_changes = st.session_state.recipe_changes
+        recipe_container_key = (
+            "recipe-result-updated"
+            if _has_recipe_changes(recipe_changes)
+            else "recipe-result"
         )
+        with st.container(key=recipe_container_key):
+            _render_recipe(st.session_state.current_recipe, changes=recipe_changes)
     elif any(event.name == "recipe_search" for event in st.session_state.last_events):
         st.info("Спробуйте змінити продукти або сформулювати інший запит.")
 
