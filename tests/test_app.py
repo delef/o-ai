@@ -504,7 +504,7 @@ def test_recipe_revision_preserves_verified_values_for_unchanged_ingredients() -
                 "status": "ok",
                 "reason": "Ви попросили уточнити крок.",
                 "ingredients": [
-                    {"name": "сіль", "quantity": None, "unit": None, "note": None},
+                    {"name": "Сіль", "quantity": None, "unit": None, "note": None},
                 ],
                 "steps": ["Додайте сіль після запікання."],
             },

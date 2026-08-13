@@ -617,10 +617,12 @@ def apply_recipe_edits(
     }
     for item in ingredients:
         old_item = original_by_name.get(normalize_text(item["name"]))
-        if old_item is not None and item["quantity"] is None and not item["note"]:
-            item["quantity"] = old_item.get("quantity")
-            item["unit"] = old_item.get("unit")
-            item["note"] = old_item.get("note")
+        if old_item is not None:
+            item["name"] = str(old_item.get("name", item["name"]))
+            if item["quantity"] is None and not item["note"]:
+                item["quantity"] = old_item.get("quantity")
+                item["unit"] = old_item.get("unit")
+                item["note"] = old_item.get("note")
 
     original_names = set(original_by_name)
     added_ingredients = [
