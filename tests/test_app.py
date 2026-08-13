@@ -366,6 +366,53 @@ def test_recipe_revision_replaces_the_complete_final_recipe() -> None:
     ]
 
 
+def test_recipe_revision_normalizes_numbered_steps_before_comparing_changes() -> None:
+    recipe = {
+        "id": "chicken-potatoes",
+        "name": "курка з картоплею",
+        "time_minutes": 55,
+        "servings": 4,
+        "ingredients": [
+            {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+            {"name": "цибуля", "quantity": 1, "unit": "шт.", "note": None},
+        ],
+        "steps": [
+            "Наріжте курку, картоплю та моркву.",
+            "Додайте олію, сіль і перець.",
+            "Запікайте при 190°C приблизно 40–45 хвилин.",
+        ],
+    }
+    events = [
+        ToolEvent(
+            name="recipe_editor",
+            status="ok",
+            content="Рецепт оновлено.",
+            artifact={
+                "kind": "recipe_editor",
+                "status": "ok",
+                "reason": "Ви попросили додати цибулю.",
+                "ingredients": recipe["ingredients"],
+                "steps": [
+                    "1. Наріжте курку, картоплю, моркву та цибулю.",
+                    "2. Додайте олію, сіль і перець.",
+                    "3. Запікайте при 190°C приблизно 40–45 хвилин.",
+                ],
+            },
+        )
+    ]
+
+    updated, changes = apply_recipe_edits(recipe, events)
+
+    assert updated["steps"] == [
+        "Наріжте курку, картоплю, моркву та цибулю.",
+        "Додайте олію, сіль і перець.",
+        "Запікайте при 190°C приблизно 40–45 хвилин.",
+    ]
+    assert changes["steps"] == [
+        {"index": 0, "reason": "Ви попросили додати цибулю."}
+    ]
+
+
 def test_recipe_revision_with_an_unused_new_ingredient_is_not_applied() -> None:
     recipe = {
         "id": "chicken-potatoes",

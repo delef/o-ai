@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
+import re
 from collections.abc import Mapping
 from html import escape
 from numbers import Real
@@ -562,7 +563,7 @@ def _clean_recipe_revision_ingredients(value: Any) -> list[dict[str, Any]] | Non
 def _clean_recipe_revision_steps(value: Any) -> list[str] | None:
     if not isinstance(value, list) or not value:
         return None
-    steps = [str(step).strip() for step in value]
+    steps = [re.sub(r"^\s*\d+[.)]\s*", "", str(step)).strip() for step in value]
     return steps if all(steps) else None
 
 

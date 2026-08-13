@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from langchain.tools import tool
@@ -49,6 +50,10 @@ class RecipeRevision(BaseModel):
             "включно з незміненими."
         )
     )
+
+
+def _clean_step(step: str) -> str:
+    return re.sub(r"^\s*\d+[.)]\s*", "", step).strip()
 
 
 def _recipe_content(matches: list[dict[str, Any]]) -> str:
@@ -179,7 +184,7 @@ def recipe_editor(
             }
         )
 
-    artifact["steps"] = [step.strip() for step in steps]
+    artifact["steps"] = [_clean_step(step) for step in steps]
     if any(not step for step in artifact["steps"]):
         artifact["status"] = "invalid"
         return "Кожен крок приготування повинен містити текст.", artifact

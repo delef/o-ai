@@ -142,3 +142,15 @@ def test_recipe_editor_returns_a_complete_revised_recipe() -> None:
             "Запікайте 45 хвилин.",
         ],
     }
+
+
+def test_recipe_editor_removes_numbering_from_step_texts() -> None:
+    message = invoke(
+        recipe_editor,
+        "revision-numbered-steps",
+        reason="Ви попросили уточнити рецепт.",
+        ingredients=[{"name": "картопля", "quantity": 700, "unit": "г"}],
+        steps=["1. Наріжте картоплю.", "2) Запікайте 45 хвилин."],
+    )
+
+    assert message.artifact["steps"] == ["Наріжте картоплю.", "Запікайте 45 хвилин."]
