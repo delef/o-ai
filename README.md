@@ -23,8 +23,8 @@ ChefBot не вигадує точні дані, яких немає в tools, �
 ```text
 Colab ───────┐
              ├─> ChefBot agent ─> recipe_search ────────┐
-Streamlit ───┘                  ├> unit_converter       ├─> data/*.json
-                               └> substitution_finder ─┘
+Streamlit ───┘                 ├> unit_converter        ├─> data/*.json
+                               └> substitution_finder  ─┘
                                       │
                                       └─> tool events + usage → evaluation/results.csv
 ```
