@@ -29,3 +29,34 @@ def test_known_ingredients_are_sorted_and_unique() -> None:
 def test_formats_numeric_and_note_ingredients() -> None:
     assert format_ingredient({"name": "олія", "quantity": 2, "unit": "ст.л.", "note": None}) == "олія — 2 ст.л."
     assert format_ingredient({"name": "сіль", "quantity": None, "unit": None, "note": "за смаком"}) == "сіль — за смаком"
+
+
+from chefbot.services import search_recipes
+
+
+def test_exact_recipe_name_ranks_first() -> None:
+    matches = search_recipes("Дай рецепт борщу")
+    assert matches[0]["recipe"]["id"] == "borshch"
+    assert "назва" in matches[0]["match_reasons"]
+
+
+def test_ukrainian_ingredient_forms_find_chicken_and_potatoes() -> None:
+    matches = search_recipes("Що приготувати з курки та картоплі?")
+    assert matches[0]["recipe"]["id"] == "chicken-potatoes"
+
+
+def test_gluten_free_query_excludes_recipes_with_gluten() -> None:
+    matches = search_recipes("Порадь рецепт без глютену")
+    assert matches
+    assert all(match["recipe"]["gluten_free"] for match in matches)
+
+
+def test_category_query_returns_tagged_recipe() -> None:
+    matches = search_recipes("Хочу швидкий сніданок")
+    assert matches
+    assert "сніданок" in matches[0]["recipe"]["tags"]
+    assert "швидко" in matches[0]["recipe"]["tags"]
+
+
+def test_unknown_recipe_returns_empty_list() -> None:
+    assert search_recipes("фуа-гра з трюфелем") == []

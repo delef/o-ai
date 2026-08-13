@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
+import re
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -123,3 +126,100 @@ def format_ingredient(ingredient: dict[str, Any]) -> str:
     else:
         value = f"{_format_quantity(ingredient['quantity'])} {ingredient['unit']}"
     return f"{ingredient['name']} — {value}"
+
+
+STOP_WORDS = {
+    "аби", "або", "без", "будь", "вона", "вони", "для", "дати", "дай",
+    "знайди", "можна", "порадь", "потрібен", "потрібна", "приготувати",
+    "рецепт", "страва", "страву", "хочу", "щось", "який", "яка",
+}
+
+
+def normalize_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value.casefold())
+    normalized = normalized.replace("’", "'").replace("`", "'")
+    return " ".join(re.findall(r"[a-zа-яіїєґ0-9']+", normalized))
+
+
+def _tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in normalize_text(value).split()
+        if len(token) > 2 and token not in STOP_WORDS
+    }
+
+
+def _contains_gluten_free_request(query: str) -> bool:
+    normalized = normalize_text(query)
+    return "без глютену" in normalized or "безглютен" in normalized or "gluten free" in normalized
+
+
+def search_recipes(query: str, limit: int = 3) -> list[dict[str, Any]]:
+    if not isinstance(query, str) or not query.strip() or limit <= 0:
+        return []
+
+    query_normalized = normalize_text(query)
+    query_tokens = _tokens(query)
+    gluten_free_only = _contains_gluten_free_request(query)
+    matches: list[dict[str, Any]] = []
+
+    for index, recipe in enumerate(load_recipes()):
+        if gluten_free_only and not recipe["gluten_free"]:
+            continue
+
+        score = 0
+        reasons: list[str] = []
+        name = normalize_text(recipe["name"])
+
+        if query_normalized == name:
+            score += 100
+            reasons.append("назва")
+        elif name in query_normalized or query_normalized in name:
+            score += 50
+            reasons.append("назва")
+
+        ingredient_hits = []
+        for ingredient in recipe["ingredients"]:
+            ingredient_name = normalize_text(ingredient["name"])
+            if any(token in ingredient_name or ingredient_name in token for token in query_tokens):
+                ingredient_hits.append(ingredient["name"])
+        if ingredient_hits:
+            score += 12 * len(ingredient_hits)
+            reasons.append("інгредієнти: " + ", ".join(ingredient_hits))
+
+        tag_hits = []
+        for tag in recipe["tags"]:
+            tag_normalized = normalize_text(tag)
+            if any(token in tag_normalized or tag_normalized in token for token in query_tokens):
+                tag_hits.append(tag)
+        if tag_hits:
+            score += 8 * len(tag_hits)
+            reasons.append("теги: " + ", ".join(tag_hits))
+
+        alias_hits = []
+        for alias in recipe["aliases"]:
+            alias_normalized = normalize_text(alias)
+            if alias_normalized in query_normalized or any(token == alias_normalized for token in query_tokens):
+                alias_hits.append(alias)
+        if alias_hits:
+            score += 10 * len(alias_hits)
+            reasons.append("форми слів: " + ", ".join(alias_hits))
+
+        if gluten_free_only:
+            score += 20
+            reasons.append("без глютену")
+
+        if score > 0:
+            matches.append(
+                {
+                    "recipe": copy.deepcopy(recipe),
+                    "score": score,
+                    "match_reasons": reasons,
+                    "source_order": index,
+                }
+            )
+
+    matches.sort(key=lambda item: (-item["score"], item["source_order"]))
+    for match in matches:
+        match.pop("source_order", None)
+    return matches[:limit]
