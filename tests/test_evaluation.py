@@ -1,7 +1,7 @@
 import csv
 
 from chefbot.agent import TokenUsage, ToolEvent
-from chefbot.evaluation import check_expectations, estimate_cost_usd, write_results
+from chefbot.evaluation import check_expectations, estimate_cost_usd, load_scenarios, write_results
 
 
 def recipe_event(recipe_id: str, status: str = "ok") -> ToolEvent:
@@ -42,6 +42,41 @@ def test_expectations_validate_grounded_artifact_values() -> None:
         "expected_conversion_result": 300,
     }
     assert check_expectations(scenario, [conversion], "300 г") == []
+
+
+def test_expectations_reject_an_incomplete_recipe_revision() -> None:
+    revision = ToolEvent(
+        name="recipe_editor",
+        status="ok",
+        content="Рецепт оновлено.",
+        artifact={
+            "kind": "recipe_editor",
+            "status": "ok",
+            "reason": "Ви попросили додати цибулю.",
+            "ingredients": [
+                {"name": "куряче філе", "quantity": 500, "unit": "г", "note": None},
+                {"name": "цибуля", "quantity": 1, "unit": "шт.", "note": None},
+            ],
+        },
+    )
+    scenario = {
+        "expected_tools": ["recipe_editor"],
+        "expected_recipe_revision_ingredient": "цибуля",
+    }
+
+    assert check_expectations(scenario, [revision], "Рецепт оновлено.") == [
+        "recipe_editor did not return a complete revision for цибуля"
+    ]
+
+
+def test_live_evaluation_covers_recipe_revision() -> None:
+    scenarios = {scenario["id"]: scenario for scenario in load_scenarios()}
+
+    assert scenarios["recipe_revision"]["expected_tools"] == [
+        "recipe_search",
+        "recipe_editor",
+    ]
+    assert scenarios["recipe_revision"]["expected_recipe_revision_ingredient"] == "цибуля"
 
 
 def test_cost_uses_separate_input_cached_and_output_rates() -> None:

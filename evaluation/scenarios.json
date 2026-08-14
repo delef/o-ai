@@ -60,6 +60,17 @@
     "expected_recipe_ids": ["apple-pie"]
   },
   {
+    "id": "recipe_revision",
+    "turns": [
+      "Знайди рецепт курки з картоплею.",
+      "Додай до рецепта 1 цибулину і онови весь рецепт."
+    ],
+    "expected_tools": ["recipe_search", "recipe_editor"],
+    "expected_statuses": {"recipe_search": "ok", "recipe_editor": "ok"},
+    "expected_recipe_ids": ["chicken-potatoes"],
+    "expected_recipe_revision_ingredient": "цибуля"
+  },
+  {
     "id": "recipe_unknown",
     "turns": ["Дай рецепт фуа-гра з трюфелем."],
     "expected_tools": ["recipe_search"],

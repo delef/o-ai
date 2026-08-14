@@ -21,6 +21,15 @@ def test_notebook_clones_public_repository_and_uses_colab_secret() -> None:
     assert "print(api_key)" not in source
 
 
+def test_notebook_covers_recipe_revision_and_exposes_results_download() -> None:
+    notebook = nbformat.read(NOTEBOOK, as_version=4)
+    source = "\n".join(cell.source for cell in notebook.cells)
+
+    assert "Додай до рецепта 1 цибулину і онови весь рецепт." in source
+    assert "download_results" in source
+    assert "files.download" in source
+
+
 def test_notebook_contains_no_duplicated_runtime_implementation() -> None:
     notebook = nbformat.read(NOTEBOOK, as_version=4)
     source = "\n".join(cell.source for cell in notebook.cells)

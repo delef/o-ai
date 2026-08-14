@@ -132,22 +132,35 @@ notebook.cells = [
     ),
     markdown(
         """
-        ## 6. Контекст розмови
+        ## 6. Контекст розмови та цілісне оновлення рецепта
 
         Другий запит використовує історію першого, тому користувачеві не треба
-        повторювати назву рецепта.
+        повторювати назву рецепта. `recipe_editor` повертає повний оновлений
+        склад і всі кроки, а не частковий патч.
         """
     ),
     code(
         """
-        messages = [HumanMessage(content="Знайди рецепт яблучного пирога.")]
+        messages = [HumanMessage(content="Знайди рецепт курки з картоплею.")]
         first = run_chefbot(agent, messages)
-        messages = [*first.messages, HumanMessage(content="Чим у ньому замінити масло?")]
+        messages = [
+            *first.messages,
+            HumanMessage(content="Додай до рецепта 1 цибулину і онови весь рецепт."),
+        ]
         second = run_chefbot(agent, messages)
+        revisions = [
+            event.artifact
+            for event in second.tool_events
+            if event.name == "recipe_editor" and event.status == "ok"
+        ]
 
         print("Перший turn tools:", [event.name for event in first.tool_events])
         print("Другий turn tools:", [event.name for event in second.tool_events])
-        print("ChefBot:", second.answer)
+        if not revisions:
+            raise RuntimeError("recipe_editor не повернув цілісне оновлення рецепта.")
+        revision = revisions[-1]
+        print("Оновлені інгредієнти:", revision["ingredients"])
+        print("Оновлені кроки:", revision["steps"])
         """
     ),
     markdown(
@@ -173,9 +186,30 @@ notebook.cells = [
 
         passed = sum(1 for row in rows if row["passed"])
         print(f"Evaluation: {passed}/{len(rows)} passed")
-        for row in rows:
-            print(row["scenario_id"], "PASS" if row["passed"] else row["failure_reason"])
+        from IPython.display import display
+        import pandas as pd
+
+        display(
+            pd.DataFrame(rows)[
+                [
+                    "scenario_id",
+                    "passed",
+                    "observed_tools",
+                    "latency_ms",
+                    "total_tokens",
+                    "estimated_cost_usd",
+                    "failure_reason",
+                ]
+            ]
+        )
         print("CSV:", DEFAULT_OUTPUT)
+
+        def download_results():
+            from google.colab import files
+
+            files.download(str(DEFAULT_OUTPUT))
+
+        print("Для завантаження CSV виконайте: download_results()")
         """
     ),
     markdown(

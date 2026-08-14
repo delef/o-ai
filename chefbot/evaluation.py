@@ -85,6 +85,25 @@ def _matching_artifacts(events: list[ToolEvent], tool_name: str) -> list[dict[st
     return [event.artifact for event in events if event.name == tool_name]
 
 
+def _has_complete_recipe_revision(events: list[ToolEvent], ingredient: str) -> bool:
+    expected_ingredient = normalize_text(ingredient)
+    for artifact in _matching_artifacts(events, "recipe_editor"):
+        ingredients = artifact.get("ingredients")
+        steps = artifact.get("steps")
+        if not isinstance(ingredients, list) or not ingredients:
+            continue
+        if not isinstance(steps, list) or not all(isinstance(step, str) and step.strip() for step in steps):
+            continue
+        names = [
+            normalize_text(str(item.get("name", "")))
+            for item in ingredients
+            if isinstance(item, dict)
+        ]
+        if len(names) == len(ingredients) and expected_ingredient in names:
+            return True
+    return False
+
+
 def check_expectations(
     scenario: dict[str, Any],
     events: list[ToolEvent],
@@ -139,6 +158,13 @@ def check_expectations(
         }
         if scenario["expected_substitution_ingredient"] not in ingredients:
             failures.append("substitution_finder returned an unexpected ingredient")
+
+    if "expected_recipe_revision_ingredient" in scenario:
+        ingredient = str(scenario["expected_recipe_revision_ingredient"])
+        if not _has_complete_recipe_revision(events, ingredient):
+            failures.append(
+                f"recipe_editor did not return a complete revision for {ingredient}"
+            )
 
     answer_normalized = normalize_text(answer)
     contains_any = [normalize_text(value) for value in scenario.get("answer_contains_any", [])]
